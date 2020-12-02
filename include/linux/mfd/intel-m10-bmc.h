@@ -77,10 +77,10 @@ enum m10bmc_type {
 #define M10BMC_TELEM_END		0x33c
 
 /* Secure update doorbell register, in system register region */
-#define M10BMC_DOORBELL			0x400
+#define M10BMC_DOORBELL			0x0
 
 /* Authorization Result register, in system register region */
-#define M10BMC_AUTH_RESULT		0x404
+#define M10BMC_AUTH_RESULT		0x4
 
 /* Doorbell register fields */
 #define DRBL_RSU_REQUEST		BIT(0)
@@ -163,6 +163,13 @@ enum m10bmc_type {
 
 #define PMCI_M10BMC_BUILD_VER		0x0
 #define PMCI_NIOS2_FW_VERSION		0x4
+
+#define N3000_DOORBELL_OFFSET 0x400
+#define PMCI_DOORBELL_OFFSET 0x1c0
+
+#define doorbell_offset(m10bmc) \
+	(M10_SPI_CARD(m10bmc) ? \
+	 N3000_DOORBELL_OFFSET : PMCI_DOORBELL_OFFSET)
 
 /* Flash Interface Control */
 #define M10BMC_FLASH_CTRL 0x1dc
