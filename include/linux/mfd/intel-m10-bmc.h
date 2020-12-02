@@ -13,7 +13,8 @@
 /* Supported MAX10 BMC types */
 enum m10bmc_type {
 	M10_N3000,
-	M10_D5005
+	M10_D5005,
+	M10_AC
 };
 
 #define M10BMC_LEGACY_SYS_BASE		0x300400
@@ -76,10 +77,10 @@ enum m10bmc_type {
 #define M10BMC_TELEM_END		0x33c
 
 /* Secure update doorbell register, in system register region */
-#define M10BMC_DOORBELL			0x400
+#define M10BMC_DOORBELL			0x0
 
 /* Authorization Result register, in system register region */
-#define M10BMC_AUTH_RESULT		0x404
+#define M10BMC_AUTH_RESULT		0x4
 
 /* Doorbell register fields */
 #define DRBL_RSU_REQUEST		BIT(0)
@@ -127,7 +128,7 @@ enum m10bmc_type {
 #define HOST_STATUS_ABORT_RSU		0x2
 
 #define rsu_prog(doorbell)	FIELD_GET(DRBL_RSU_PROGRESS, doorbell)
-#define rsu_stat(doorbell)	FIELD_GET(DRBL_RSU_STATUS, doorbell)
+#define rsu_stat(status)	FIELD_GET(DRBL_RSU_STATUS, status)
 
 /* interval 100ms and timeout 5s */
 #define NIOS_HANDSHAKE_INTERVAL_US	(100 * 1000)
@@ -157,6 +158,45 @@ enum m10bmc_type {
 /* Address of inverted bit vector containing user the image FLASH count */
 #define USER_FLASH_COUNT 0x17ffb000
 
+#define PMCI_M10BMC_BUILD_VER		0x0
+#define PMCI_NIOS2_FW_VERSION		0x4
+
+#define N3000_DOORBELL_OFFSET 0x400
+#define PMCI_DOORBELL_OFFSET 0x1c0
+
+#define M10_SPI_CARD(m10bmc) ((m10bmc)->type == M10_D5005 || (m10bmc)->type == M10_N3000)
+#define M10_PMCI_CARD(m10bmc) ((m10bmc)->type == M10_AC)
+
+#define doorbell_offset(m10bmc) \
+	(((m10bmc)->type == M10_N3000 || \
+	 (m10bmc)->type == M10_D5005) ? \
+	 N3000_DOORBELL_OFFSET : PMCI_DOORBELL_OFFSET) 
+
+#define PMCI_FLASH_CTRL 0x10
+#define PMCI_FLASH_WR_MODE BIT(0)
+#define PMCI_FLASH_RD_MODE BIT(1)
+#define PMCI_FLASH_BUSY    BIT(2)
+#define PMCI_FLASH_FIFO_SPACE GENMASK(13, 4)
+#define PMCI_FLASH_READ_COUNT GENMASK(25, 16)
+
+#define PMCI_FLASH_INT_US	1
+#define PMCI_FLASH_TIMEOUT_US	10000
+
+#define PMCI_FLASH_ADDR 0x14
+#define PMCI_FLASH_FIFO 0x400
+
+/* Flash Interface Control */
+#define M10BMC_FLASH_CTRL 0x1dc
+#define FLASH_MUX_SELECTION GENMASK(2, 0)
+#define FLASH_MUX_IDLE 0
+#define FLASH_MUX_NIOS 1
+#define FLASH_MUX_HOST 2
+#define FLASH_MUX_PFL  4
+#define get_flash_mux(mux)	FIELD_GET(FLASH_MUX_SELECTION, mux)
+
+#define FLASH_NIOS_REQUEST BIT(4)
+#define FLASH_HOST_REQUEST BIT(5)
+
 /**
  * struct intel_m10bmc_retimer_pdata - subdev retimer platform data
  *
@@ -170,6 +210,15 @@ struct intel_m10bmc_platdata {
 	struct intel_m10bmc_retimer_pdata *retimer;
 };
 
+/**
+ * struct intel_pmci_secure_pdata - secure manager of PMIC platform data
+ *
+ * @base: base address of PMCI CSR register
+ */
+struct intel_pmci_secure_pdata {
+	void __iomem *base;
+};
+
 enum m10bmc_fw_state {
 	M10BMC_FW_STATE_NORMAL,
 	M10BMC_FW_STATE_SEC_UPDATE,
@@ -180,12 +229,14 @@ enum m10bmc_fw_state {
  * @dev: this device
  * @regmap: the regmap used to access registers by m10bmc itself
  * @bmcfw_state: BMC firmware running state.
+ * @type: Board type.
  */
 struct intel_m10bmc {
 	struct device *dev;
 	struct regmap *regmap;
 	struct rw_semaphore bmcfw_lock;
 	enum m10bmc_fw_state bmcfw_state;
+	enum m10bmc_type type;
 };
 
 /*
