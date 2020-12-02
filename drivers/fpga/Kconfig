@@ -292,4 +292,11 @@ config FPGA_DFL_PMCI
 	  on Intel Arrow Creek Card. PMCI is defining a set of standards that can be used for
 	  communications between the platform components on FPGA card.
 
+config FPGA_INTEL_M10_BMC_DRIVER
+	tristate "Intel MAX 10 Board Management Controller Driver"
+	depends on MFD_INTEL_M10_BMC
+	help
+	Support for the Intel MAX 10 board management controller. This driver
+	provides common support for accessing the MAX 10 device.
+
 endif # FPGA

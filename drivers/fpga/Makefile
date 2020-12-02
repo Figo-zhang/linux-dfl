@@ -59,3 +59,4 @@ obj-$(CONFIG_FPGA_DFL_PCI)		+= dfl-pci.o
 obj-$(CONFIG_FPGA_DFl_HSSI)		+= dfl-hssi.o
 obj-$(CONFIG_FPGA_DFL_INTEL_S10_IOPLL)	+= dfl-intel-s10-iopll.o
 obj-$(CONFIG_FPGA_DFL_PMCI)		+= dfl-pmci.o
+obj-$(CONFIG_FPGA_INTEL_M10_BMC_DRIVER)	+= intel-m10-bmc-driver.o

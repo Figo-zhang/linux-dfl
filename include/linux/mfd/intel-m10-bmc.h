@@ -13,7 +13,8 @@
 /* Supported MAX10 BMC types */
 enum m10bmc_type {
 	M10_N3000,
-	M10_D5005
+	M10_D5005,
+	M10_AC
 };
 
 #define M10BMC_LEGACY_SYS_BASE		0x300400
@@ -157,6 +158,12 @@ enum m10bmc_type {
 /* Address of inverted bit vector containing user the image FLASH count */
 #define USER_FLASH_COUNT 0x17ffb000
 
+#define M10_SPI_CARD(m10bmc) ((m10bmc)->type == M10_D5005 || (m10bmc)->type == M10_N3000)
+#define M10_PMCI_CARD(m10bmc) ((m10bmc)->type == M10_AC)
+
+#define PMCI_M10BMC_BUILD_VER		0x0
+#define PMCI_NIOS2_FW_VERSION		0x4
+
 /**
  * struct intel_m10bmc_retimer_pdata - subdev retimer platform data
  *
@@ -180,12 +187,14 @@ enum m10bmc_fw_state {
  * @dev: this device
  * @regmap: the regmap used to access registers by m10bmc itself
  * @bmcfw_state: BMC firmware running state.
+ * @type: Board type.
  */
 struct intel_m10bmc {
 	struct device *dev;
 	struct regmap *regmap;
 	struct rw_semaphore bmcfw_lock;
 	enum m10bmc_fw_state bmcfw_state;
+	enum m10bmc_type type;
 };
 
 /**
