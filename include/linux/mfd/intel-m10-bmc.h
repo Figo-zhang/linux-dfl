@@ -188,6 +188,15 @@ struct intel_m10bmc {
 	enum m10bmc_fw_state bmcfw_state;
 };
 
+/**
+ * struct intel_pmci_secure_pdata - secure manager of PMIC platform data
+ *
+ * @base: base address of PMCI CSR register
+ */
+struct intel_pmci_secure_pdata {
+	void __iomem *base;
+};
+
 /*
  * register access helper functions.
  *

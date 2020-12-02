@@ -283,4 +283,13 @@ config FPGA_DFL_INTEL_S10_IOPLL
 	  this option to support a configurable user clock in FPGA
 	  PR regions.
 
+config FPGA_DFL_PMCI
+	tristate "FPGA DFL PMCI Driver"
+	depends on FPGA_DFL && MFD_CORE
+	select REGMAP_INDIRECT_REGISTER
+	help
+	  This is the driver for FPGA Platform Management Component Intercommunications(PMCI)
+	  on Intel Arrow Creek Card. PMCI is defining a set of standards that can be used for
+	  communications between the platform components on FPGA card.
+
 endif # FPGA
