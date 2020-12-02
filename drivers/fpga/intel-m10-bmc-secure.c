@@ -241,14 +241,14 @@ static enum fpga_sec_err rsu_check_idle(struct m10bmc_sec *sec)
 	return FPGA_SEC_ERR_NONE;
 }
 
-static inline bool rsu_start_done(u32 doorbell)
+static inline bool rsu_start_done(u32 doorbell, u32 rsu_status)
 {
 	u32 status, progress;
 
 	if (doorbell & DRBL_RSU_REQUEST)
 		return false;
 
-	status = rsu_stat(doorbell);
+	status = rsu_stat(rsu_status);
 	if (status == RSU_STAT_ERASE_FAIL || status == RSU_STAT_WEAROUT)
 		return true;
 
@@ -259,9 +259,47 @@ static inline bool rsu_start_done(u32 doorbell)
 	return false;
 }
 
+static int pmci_rsu_update_init(struct m10bmc_sec *sec, u32 *doorbell,
+		u32 *rsu_status)
+{
+	unsigned long poll_timeout;
+	u32 val, status;
+	bool cond = false;
+	int ret;
+
+	poll_timeout = jiffies + msecs_to_jiffies(NIOS_HANDSHAKE_TIMEOUT_US);
+
+	while (1) {
+		ret = m10bmc_sys_read(sec->m10bmc,
+				doorbell_offset(sec->m10bmc) + M10BMC_DOORBELL,
+				&val);
+		if (ret)
+			return ret;
+
+		ret = m10bmc_sys_read(sec->m10bmc,
+				doorbell_offset(sec->m10bmc) + M10BMC_AUTH_RESULT,
+				&status);
+		if (ret)
+			return ret;
+
+		if (rsu_start_done(val, status)) {
+			cond = true;
+			*doorbell = val;
+			*rsu_status = status;
+			break;
+		}
+
+		msleep(RSU_PREP_INTERVAL_MS);
+		if (time_after(jiffies, poll_timeout))
+			break;
+	}
+
+	return (cond) ? 0 : -ETIMEDOUT;
+}
+
 static enum fpga_sec_err rsu_update_init(struct m10bmc_sec *sec)
 {
-	u32 doorbell, status;
+	u32 doorbell, status, rsu_status;
 	int ret;
 
 	ret = m10bmc_sys_update_bits(sec->m10bmc, doorbell_offset(sec->m10bmc) +
@@ -273,13 +311,17 @@ static enum fpga_sec_err rsu_update_init(struct m10bmc_sec *sec)
 	if (ret)
 		return FPGA_SEC_ERR_RW_ERROR;
 
-	ret = regmap_read_poll_timeout(sec->m10bmc->regmap,
-			M10BMC_SYS_BASE +
-			doorbell_offset(sec->m10bmc) + M10BMC_DOORBELL,
-			doorbell,
-			rsu_start_done(doorbell),
-			NIOS_HANDSHAKE_INTERVAL_US,
-			NIOS_HANDSHAKE_TIMEOUT_US);
+	if (M10_SPI_CARD(sec->m10bmc)) {
+		ret = regmap_read_poll_timeout(sec->m10bmc->regmap,
+				       M10BMC_SYS_BASE + doorbell_offset(sec->m10bmc)
+				       + M10BMC_DOORBELL,
+				       doorbell,
+				       rsu_start_done(doorbell, doorbell),
+				       NIOS_HANDSHAKE_INTERVAL_US,
+				       NIOS_HANDSHAKE_TIMEOUT_US);
+		rsu_status = doorbell;
+	} else if (M10_PMCI_CARD(sec->m10bmc))
+		ret = pmci_rsu_update_init(sec, &doorbell, &rsu_status);
 
 	if (ret == -ETIMEDOUT) {
 		log_error_regs(sec, doorbell);
@@ -288,7 +330,7 @@ static enum fpga_sec_err rsu_update_init(struct m10bmc_sec *sec)
 		return FPGA_SEC_ERR_RW_ERROR;
 	}
 
-	status = rsu_stat(doorbell);
+	status = rsu_stat(rsu_status);
 	if (status == RSU_STAT_WEAROUT) {
 		dev_warn(sec->dev, "Excessive flash update count detected\n");
 		return FPGA_SEC_ERR_WEAROUT;
@@ -337,7 +379,7 @@ static enum fpga_sec_err rsu_prog_ready(struct m10bmc_sec *sec)
 
 static enum fpga_sec_err rsu_send_data(struct m10bmc_sec *sec)
 {
-	u32 doorbell;
+	u32 doorbell, rsu_status;
 	int ret;
 
 	ret = m10bmc_sys_update_bits(sec->m10bmc, doorbell_offset(sec->m10bmc) +
@@ -363,7 +405,17 @@ static enum fpga_sec_err rsu_send_data(struct m10bmc_sec *sec)
 		return FPGA_SEC_ERR_RW_ERROR;
 	}
 
-	switch (rsu_stat(doorbell)) {
+	if (M10_SPI_CARD(sec->m10bmc))
+		rsu_status = doorbell;
+	else if (M10_PMCI_CARD(sec->m10bmc)) {
+		ret = m10bmc_sys_read(sec->m10bmc,
+				doorbell_offset(sec->m10bmc) + M10BMC_AUTH_RESULT,
+				&rsu_status);
+		if (ret)
+			return FPGA_SEC_ERR_RW_ERROR;
+	}
+
+	switch (rsu_stat(rsu_status)) {
 	case RSU_STAT_NORMAL:
 	case RSU_STAT_NIOS_OK:
 	case RSU_STAT_USER_OK:
@@ -377,13 +429,16 @@ static enum fpga_sec_err rsu_send_data(struct m10bmc_sec *sec)
 	return FPGA_SEC_ERR_NONE;
 }
 
-static int rsu_check_complete(struct m10bmc_sec *sec, u32 *doorbell)
+static int rsu_check_complete(struct m10bmc_sec *sec, u32 *doorbell,
+		u32 *rsu_status)
 {
-	if (m10bmc_sys_read(sec->m10bmc, doorbell_offset(sec->m10bmc) +
-				M10BMC_DOORBELL, doorbell))
+	if (m10bmc_sys_read(sec->m10bmc,
+				doorbell_offset(sec->m10bmc) +
+				M10BMC_AUTH_RESULT,
+				rsu_status))
 		return -EIO;
 
-	switch (rsu_stat(*doorbell)) {
+	switch (rsu_stat(*rsu_status)) {
 	case RSU_STAT_NORMAL:
 	case RSU_STAT_NIOS_OK:
 	case RSU_STAT_USER_OK:
@@ -393,6 +448,10 @@ static int rsu_check_complete(struct m10bmc_sec *sec, u32 *doorbell)
 	default:
 		return -EINVAL;
 	}
+
+	if (m10bmc_sys_read(sec->m10bmc, doorbell_offset(sec->m10bmc) +
+				M10BMC_DOORBELL, doorbell))
+		return -EIO;
 
 	switch (rsu_prog(*doorbell)) {
 	case RSU_PROG_IDLE:
@@ -604,7 +663,7 @@ static enum fpga_sec_err m10bmc_sec_poll_complete(struct fpga_sec_mgr *smgr)
 	struct m10bmc_sec *sec = smgr->priv;
 	unsigned long poll_timeout;
 	enum fpga_sec_err result;
-	u32 doorbell;
+	u32 doorbell, rsu_status;
 	int ret;
 
 	ret = m10bmc_fw_state_enter(sec->m10bmc, M10BMC_FW_STATE_SEC_UPDATE);
@@ -615,12 +674,12 @@ static enum fpga_sec_err m10bmc_sec_poll_complete(struct fpga_sec_mgr *smgr)
 	if (result != FPGA_SEC_ERR_NONE)
 		goto fw_state_exit;
 
-	ret = rsu_check_complete(sec, &doorbell);
+	ret = rsu_check_complete(sec, &doorbell, &rsu_status);
 	poll_timeout = jiffies + msecs_to_jiffies(RSU_COMPLETE_TIMEOUT_MS);
 
 	while (ret == -EAGAIN && !time_after(jiffies, poll_timeout)) {
 		msleep(RSU_COMPLETE_INTERVAL_MS);
-		ret = rsu_check_complete(sec, &doorbell);
+		ret = rsu_check_complete(sec, &doorbell, &rsu_status);
 		if (smgr->driver_unload) {
 			result = FPGA_SEC_ERR_CANCELED;
 			goto fw_state_exit;
