@@ -61,6 +61,7 @@ struct image_load {
  * @pr_reh_size:	    Optional: Return byte size for PR root entry hash
  * @prepare:		    Required: Prepare secure update
  * @write_blk:		    Required: Write a block of data
+ * @read_blk:		    Required: Read a block of data
  * @poll_complete:	    Required: Check for the completion of the
  *			    HW authentication/programming process. This
  *			    function should check for smgr->driver_unload
@@ -73,6 +74,8 @@ struct image_load {
  * @get_hw_errinfo:	    Optional: Return u64 hw specific error info.
  *			    The software err_code may used to determine
  *			    whether the hw error info is applicable.
+ * @get_write_space:	    Optional: Return the size of Flash burst
+ *                          master FIFO space available on PMCI.
  * @image_load:		    pointer to array of image_load structures,
  *			    { } member terminated. These structures describe
  *			    image load triggers for BMC, FPGA, or firmware
@@ -101,10 +104,13 @@ struct fpga_sec_mgr_ops {
 	enum fpga_sec_err (*prepare)(struct fpga_sec_mgr *smgr);
 	enum fpga_sec_err (*write_blk)(struct fpga_sec_mgr *smgr,
 				       u32 offset, u32 size);
+	enum fpga_sec_err (*read_blk)(struct fpga_sec_mgr *smgr,
+				       void *buffer, u32 addr, u32 size);
 	enum fpga_sec_err (*poll_complete)(struct fpga_sec_mgr *smgr);
 	void (*cleanup)(struct fpga_sec_mgr *smgr);
 	enum fpga_sec_err (*cancel)(struct fpga_sec_mgr *smgr);
 	u64 (*get_hw_errinfo)(struct fpga_sec_mgr *smgr);
+	u32 (*get_write_space)(struct fpga_sec_mgr *smgr, u32 size);
 	struct image_load *image_load;	/* terminated with { } member */
 };
 

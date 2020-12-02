@@ -232,7 +232,10 @@ static void fpga_sec_mgr_update(struct work_struct *work)
 
 	size = smgr->remaining_size;
 	while (size && !smgr->request_cancel) {
-		blk_size = min_t(u32, size, WRITE_BLOCK_SIZE);
+		if (smgr->sops->get_write_space)
+			blk_size = smgr->sops->get_write_space(smgr, size);
+		else
+			blk_size = min_t(u32, size, WRITE_BLOCK_SIZE);
 		size -= blk_size;
 		ret = smgr->sops->write_blk(smgr, offset, blk_size);
 		if (ret != FPGA_SEC_ERR_NONE) {
