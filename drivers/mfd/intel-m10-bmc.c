@@ -170,6 +170,7 @@ static int intel_m10_bmc_spi_probe(struct spi_device *spi)
 {
 	struct intel_m10bmc_platdata *pdata = dev_get_platdata(&spi->dev);
 	const struct spi_device_id *id = spi_get_device_id(spi);
+	enum m10bmc_type type = (enum m10bmc_type)id->driver_data;
 	struct device *dev = &spi->dev;
 	struct mfd_cell *cells;
 	struct intel_m10bmc *ddata;
@@ -180,6 +181,7 @@ static int intel_m10_bmc_spi_probe(struct spi_device *spi)
 		return -ENOMEM;
 
 	ddata->dev = dev;
+	ddata->type = type;
 
 	ddata->regmap =
 		devm_regmap_init_spi_avmm(spi, &intel_m10bmc_regmap_config);
