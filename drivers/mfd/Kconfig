@@ -2166,5 +2166,16 @@ config MFD_INTEL_M10_BMC
 	  additional drivers must be enabled in order to use the functionality
 	  of the device.
 
+config MFD_INTEL_PMCI_BMC
+	tristate "Intel PMCI controller driver"
+	depends on FPGA_DFL
+	select MFD_CORE
+	select REGMAP_INDIRECT_REGISTER
+	help
+	This is the driver for FPGA Platform Management Component Intercommunications(PMCI)
+	device. The hope is that the subsystems are carried forward to other boards
+	without any software changes.
+
+
 endmenu
 endif
