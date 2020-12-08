@@ -9,6 +9,7 @@
 #include <linux/device.h>
 #include <linux/fpga/fpga-sec-mgr.h>
 #include <linux/mfd/intel-m10-bmc.h>
+#include <linux/mod_devicetable.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/slab.h>
@@ -528,16 +529,29 @@ static int m10bmc_secure_probe(struct platform_device *pdev)
 	return devm_fpga_sec_mgr_register(sec->dev, smgr);
 }
 
+static const struct platform_device_id intel_m10bmc_secure_ids[] = {
+       {
+               .name = "n3000bmc-secure",
+               .driver_data = (unsigned long)M10_N3000,
+       },
+       {
+               .name = "d5005bmc-secure",
+               .driver_data = (unsigned long)M10_D5005,
+       },
+       { }
+};
+
 static struct platform_driver intel_m10bmc_secure_driver = {
 	.probe = m10bmc_secure_probe,
 	.driver = {
-		.name = "n3000bmc-secure",
+		.name = "intel-m10bmc-secure",
 		.dev_groups = m10bmc_sec_attr_groups,
 	},
+	.id_table = intel_m10bmc_secure_ids,
 };
 module_platform_driver(intel_m10bmc_secure_driver);
 
-MODULE_ALIAS("platform:n3000bmc-secure");
+MODULE_DEVICE_TABLE(platform, intel_m10bmc_secure_ids);
 MODULE_AUTHOR("Intel Corporation");
 MODULE_DESCRIPTION("Intel MAX10 BMC Secure Update");
 MODULE_LICENSE("GPL v2");
