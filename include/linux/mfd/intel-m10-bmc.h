@@ -136,6 +136,9 @@ enum m10bmc_type {
 #define PMCI_M10BMC_FLASH_BASE  0x0
 #define PMCI_M10BMC_MEM_END	0x100000fc
 
+#define PMCI_M10BMC_BUILD_VER	0x0
+#define PMCI_NIOS2_FW_VERSION	0x4
+
 #define M10_SPI(m10bmc) ((m10bmc)->type == M10_D5005 || (m10bmc)->type == M10_N3000)
 #define M10_PMCI(m10bmc) ((m10bmc)->type == M10_PMCI)
 
