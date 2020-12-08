@@ -51,6 +51,43 @@ static const struct regmap_config pmci_max10_cfg = {
 	.max_register = PMCI_M10BMC_SYS_END,
 };
 
+static ssize_t bmc_version_show(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	struct intel_m10bmc *ddata = dev_get_drvdata(dev);
+	unsigned int val;
+	int ret;
+
+	ret = m10bmc_sys_read(ddata, PMCI_M10BMC_BUILD_VER, &val);
+	if (ret)
+		return ret;
+
+	return sprintf(buf, "0x%x\n", val);
+}
+static DEVICE_ATTR_RO(bmc_version);
+
+static ssize_t bmcfw_version_show(struct device *dev,
+				  struct device_attribute *attr, char *buf)
+{
+	struct intel_m10bmc *ddata = dev_get_drvdata(dev);
+	unsigned int val;
+	int ret;
+
+	ret = m10bmc_sys_read(ddata, PMCI_NIOS2_FW_VERSION, &val);
+	if (ret)
+		return ret;
+
+	return sprintf(buf, "0x%x\n", val);
+}
+static DEVICE_ATTR_RO(bmcfw_version);
+
+static struct attribute *pmci_m10bmc_attrs[] = {
+	&dev_attr_bmc_version.attr,
+	&dev_attr_bmcfw_version.attr,
+	NULL,
+};
+ATTRIBUTE_GROUPS(pmci_m10bmc);
+
 static void
 pmci_init_cells_platdata(struct pmci_device *pmci,
 			   struct mfd_cell *cells, int n_cell)
@@ -122,6 +159,7 @@ MODULE_DEVICE_TABLE(dfl, pmci_ids);
 static struct dfl_driver pmci_driver = {
 	.drv	= {
 		.name       = "dfl-pmci",
+		.dev_groups = pmci_m10bmc_groups,
 	},
 	.id_table = pmci_ids,
 	.probe   = pmci_probe,
