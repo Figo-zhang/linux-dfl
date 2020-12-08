@@ -12,7 +12,8 @@
 /* Supported MAX10 BMC types */
 enum m10bmc_type {
        M10_N3000,
-       M10_D5005
+       M10_D5005,
+       M10_PMCI
 };
 
 #define M10BMC_LEGACY_SYS_BASE		0x300400
@@ -135,6 +136,13 @@ enum m10bmc_type {
 #define PMCI_M10BMC_FLASH_BASE  0x0
 #define PMCI_M10BMC_MEM_END	0x100000fc
 
+#define M10_SPI(m10bmc) ((m10bmc)->type == M10_D5005 || (m10bmc)->type == M10_N3000)
+#define M10_PMCI(m10bmc) ((m10bmc)->type == M10_PMCI)
+
+#define m10bmc_base(m10bmc) \
+	(M10_SPI(m10bmc) ? \
+	 M10BMC_SYS_BASE : PMCI_M10BMC_SYS_BASE)
+
 /**
  * struct intel_pmci_secure_pdata - secure manager of PMIC platform data
  *
@@ -161,10 +169,14 @@ struct intel_m10bmc_platdata {
  * struct intel_m10bmc - Intel MAX 10 BMC parent driver data structure
  * @dev: this device
  * @regmap: the regmap used to access registers by m10bmc itself
+ * @type: the type of MAX10 BMC
+ * @base: the base address of MAX10 BMC CSR register.
  */
 struct intel_m10bmc {
 	struct device *dev;
 	struct regmap *regmap;
+	enum m10bmc_type type;
+	unsigned int base;
 };
 
 /*
@@ -196,6 +208,7 @@ m10bmc_raw_read(struct intel_m10bmc *m10bmc, unsigned int addr,
  * M10BMC_SYS_BASE accordingly.
  */
 #define m10bmc_sys_read(m10bmc, offset, val) \
-	m10bmc_raw_read(m10bmc, M10BMC_SYS_BASE + (offset), val)
+	m10bmc_raw_read(m10bmc, (m10bmc->base) \
+			+ (offset), val)
 
 #endif /* __MFD_INTEL_M10_BMC_H */
