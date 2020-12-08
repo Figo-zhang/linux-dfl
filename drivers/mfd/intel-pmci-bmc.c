@@ -82,6 +82,8 @@ static int pmci_probe(struct dfl_device *ddev)
 		return -ENOMEM;
 
 	ddata->dev = dev;
+	ddata->type = M10_PMCI;
+	ddata->base = m10bmc_base(ddata);
 	pmci->dev = dev;
 
 	pmci->base = devm_ioremap_resource(&ddev->dev, &ddev->mmio_res);
