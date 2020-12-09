@@ -43,6 +43,8 @@ enum fpga_sec_err {
  * @get_hw_errinfo:	    Optional: Return u64 hw specific error info.
  *			    The software err_code may used to determine
  *			    whether the hw error info is applicable.
+ * @get_write_space:        Optional: Return the size of Flash burst
+ *                          master FIFO space available on PMCI.
  */
 struct fpga_sec_mgr_ops {
 	enum fpga_sec_err (*prepare)(struct fpga_sec_mgr *smgr);
@@ -52,6 +54,7 @@ struct fpga_sec_mgr_ops {
 	enum fpga_sec_err (*cancel)(struct fpga_sec_mgr *smgr);
 	void (*cleanup)(struct fpga_sec_mgr *smgr);
 	u64 (*get_hw_errinfo)(struct fpga_sec_mgr *smgr);
+	u32 (*get_write_space)(struct fpga_sec_mgr *smgr, u32 size);
 };
 
 /* Update progress codes */
