@@ -17,6 +17,7 @@
 struct m10bmc_sec {
 	struct device *dev;
 	struct intel_m10bmc *m10bmc;
+	void __iomem *base; /* PMCI CSR register base address */
 };
 
 /* Root Entry Hash (REH) support */
@@ -24,6 +25,18 @@ struct m10bmc_sec {
 #define REH_SHA384_SIZE		48
 #define REH_MAGIC		GENMASK(15, 0)
 #define REH_SHA_NUM_BYTES	GENMASK(31, 16)
+
+static void pmci_write_fifo(struct m10bmc_sec *sec, unsigned int reg,
+		void *buf, size_t val_count)
+{
+	int i;
+	u32 val;
+
+	for (i = 0; i < val_count; i++) {
+		val = *(u32 *)(buf + i * 4);
+		writel(val, sec->base + reg + i * 4);
+	}
+}
 
 static ssize_t
 show_root_entry_hash(struct device *dev, u32 exp_magic,
@@ -413,6 +426,46 @@ m10bmc_sec_write_blk(struct fpga_sec_mgr *smgr, u32 offset, u32 size)
 	return ret ? FPGA_SEC_ERR_RW_ERROR : FPGA_SEC_ERR_NONE;
 }
 
+static u32
+pmci_get_write_space(struct m10bmc_sec *sec, u32 size)
+{
+	u32 count, val;
+	int ret;
+
+	ret = read_poll_timeout(readl, val,
+			FIELD_GET(PMCI_FLASH_FIFO_SPACE, val) != 0,
+			PMCI_FLASH_INT_US, PMCI_FLASH_TIMEOUT_US,
+			false, sec->base + PMCI_FLASH_CTRL);
+	if (ret == -ETIMEDOUT)
+		return 0;
+
+	count = FIELD_GET(PMCI_FLASH_FIFO_SPACE, val) * 4;
+
+	return (size > count) ? count : size;
+}
+
+static enum fpga_sec_err
+pmci_sec_write_blk(struct fpga_sec_mgr *smgr, u32 offset, u32 size)
+{
+	struct m10bmc_sec *sec = smgr->priv;
+	u32 blk_size, n_offset = 0;
+
+	while (size) {
+		blk_size = pmci_get_write_space(sec, size);
+		if (blk_size == 0) {
+			dev_err(sec->dev, "get FIFO available size fail\n");
+			return FPGA_SEC_ERR_HW_ERROR;
+		}
+		size -= blk_size;
+		pmci_write_fifo(sec, PMCI_FLASH_FIFO,
+				(void *)smgr->data + offset + n_offset,
+			blk_size / 4);
+		n_offset += blk_size;
+	}
+
+	return FPGA_SEC_ERR_NONE;
+}
+
 /*
  * m10bmc_sec_poll_complete() is called after handing things off to
  * the BMC firmware. Depending on the type of update, it could be
@@ -506,10 +559,23 @@ static const struct fpga_sec_mgr_ops m10bmc_sops = {
 	.get_hw_errinfo = m10bmc_sec_hw_errinfo,
 };
 
+static const struct fpga_sec_mgr_ops pmci_m10bmc_sops = {
+	.prepare = m10bmc_sec_prepare,
+	.write_blk = pmci_sec_write_blk,
+	.poll_complete = m10bmc_sec_poll_complete,
+	.cancel = m10bmc_sec_cancel,
+	.get_hw_errinfo = m10bmc_sec_hw_errinfo,
+};
+
 static int m10bmc_secure_probe(struct platform_device *pdev)
 {
 	struct fpga_sec_mgr *smgr;
 	struct m10bmc_sec *sec;
+	const struct platform_device_id *id = platform_get_device_id(pdev);
+	enum m10bmc_type type = (enum m10bmc_type)id->driver_data;
+	const struct fpga_sec_mgr_ops *sops;
+	struct intel_pmci_secure_pdata *pdata =
+		dev_get_platdata(&pdev->dev);
 
 	sec = devm_kzalloc(&pdev->dev, sizeof(*sec), GFP_KERNEL);
 	if (!sec)
@@ -517,10 +583,17 @@ static int m10bmc_secure_probe(struct platform_device *pdev)
 
 	sec->dev = &pdev->dev;
 	sec->m10bmc = dev_get_drvdata(pdev->dev.parent);
+	sec->m10bmc->type = type;
+
+	if (M10_PMCI(sec->m10bmc))
+			sec->base = pdata->base;
+
 	dev_set_drvdata(&pdev->dev, sec);
 
+	sops = M10_SPI(sec->m10bmc) ? &m10bmc_sops : &pmci_m10bmc_sops;
+
 	smgr = devm_fpga_sec_mgr_create(sec->dev, "Max10 BMC Secure Update",
-					&m10bmc_sops, sec);
+					sops, sec);
 	if (!smgr) {
 		dev_err(sec->dev, "Security manager failed to start\n");
 		return -ENOMEM;
@@ -537,6 +610,10 @@ static const struct platform_device_id intel_m10bmc_secure_ids[] = {
        {
                .name = "d5005bmc-secure",
                .driver_data = (unsigned long)M10_D5005,
+       },
+       {
+	       .name = "intel-pmci-secure",
+	       .driver_data = (unsigned long)M10_PMCI,
        },
        { }
 };
