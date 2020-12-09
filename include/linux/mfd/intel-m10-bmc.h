@@ -139,6 +139,30 @@ enum m10bmc_type {
 #define PMCI_M10BMC_BUILD_VER	0x0
 #define PMCI_NIOS2_FW_VERSION	0x4
 
+#define PMCI_M10BMC_FLASH_CTRL 0x1d0
+#define FLASH_MUX_SELECTION GENMASK(2, 0)
+#define FLASH_MUX_IDLE 0
+#define FLASH_MUX_NIOS 1
+#define FLASH_MUX_HOST 2
+#define FLASH_MUX_PFL  4
+#define get_flash_mux(mux)	FIELD_GET(FLASH_MUX_SELECTION, mux)
+
+#define FLASH_NIOS_REQUEST BIT(4)
+#define FLASH_HOST_REQUEST BIT(5)
+
+#define PMCI_FLASH_CTRL 0x40
+#define PMCI_FLASH_WR_MODE BIT(0)
+#define PMCI_FLASH_RD_MODE BIT(1)
+#define PMCI_FLASH_BUSY    BIT(2)
+#define PMCI_FLASH_FIFO_SPACE GENMASK(13, 4)
+#define PMCI_FLASH_READ_COUNT GENMASK(25, 16)
+
+#define PMCI_FLASH_INT_US	1
+#define PMCI_FLASH_TIMEOUT_US	10000
+
+#define PMCI_FLASH_ADDR 0x44
+#define PMCI_FLASH_FIFO 0x800
+
 #define M10_SPI(m10bmc) ((m10bmc)->type == M10_D5005 || (m10bmc)->type == M10_N3000)
 #define M10_PMCI(m10bmc) ((m10bmc)->type == M10_PMCI)
 
