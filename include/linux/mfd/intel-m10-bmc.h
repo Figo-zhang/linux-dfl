@@ -163,6 +163,8 @@ enum m10bmc_type {
 #define PMCI_FLASH_ADDR 0x44
 #define PMCI_FLASH_FIFO 0x800
 
+#define PMCI_READ_BLOCK_SIZE 0x800
+
 #define M10_SPI(m10bmc) ((m10bmc)->type == M10_D5005 || (m10bmc)->type == M10_N3000)
 #define M10_PMCI(m10bmc) ((m10bmc)->type == M10_PMCI)
 
