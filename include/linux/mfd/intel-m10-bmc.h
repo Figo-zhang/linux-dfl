@@ -50,10 +50,10 @@ enum m10bmc_type {
 #define SBUS_VERSION			GENMASK(31, 16)
 
 /* Secure update doorbell register, in system register region */
-#define M10BMC_DOORBELL			0x400
+#define M10BMC_DOORBELL			0x0
 
 /* Authorization Result register, in system register region */
-#define M10BMC_AUTH_RESULT		0x404
+#define M10BMC_AUTH_RESULT		0x4
 
 /* Doorbell register fields */
 #define DRBL_RSU_REQUEST		BIT(0)
@@ -167,6 +167,13 @@ enum m10bmc_type {
 
 #define M10_SPI(m10bmc) ((m10bmc)->type == M10_D5005 || (m10bmc)->type == M10_N3000)
 #define M10_PMCI(m10bmc) ((m10bmc)->type == M10_PMCI)
+
+#define M10BMC_DOORBELL_OFFSET 0x400
+#define PMCI_DOORBELL_OFFSET 0x1c0
+
+#define doorbell_offset(m10bmc) \
+	(M10_SPI(m10bmc) ? \
+	M10BMC_DOORBELL_OFFSET : PMCI_DOORBELL_OFFSET)
 
 #define m10bmc_base(m10bmc) \
 	(M10_SPI(m10bmc) ? \
