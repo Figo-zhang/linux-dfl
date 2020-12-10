@@ -38,12 +38,114 @@ static void pmci_write_fifo(struct m10bmc_sec *sec, unsigned int reg,
 	}
 }
 
+static void pmci_read_fifo(struct m10bmc_sec *sec, unsigned int reg,
+		void *buf, size_t val_count)
+{
+	int i;
+	u32 val;
+
+	for (i = 0; i < val_count; i++) {
+		val = readl(sec->base + reg + i * 4);
+		*(u32 *)(buf + i * 4) = val;
+	}
+}
+
+static int
+m10bmc_bulk_read(struct m10bmc_sec *sec, void *buffer,
+		u32 addr, u32 size)
+{
+	unsigned int stride = regmap_get_reg_stride(sec->m10bmc->regmap);
+	int ret;
+
+	WARN_ON(size % stride);
+	ret = regmap_bulk_read(sec->m10bmc->regmap, addr,
+			       buffer, size / stride);
+	if (ret)
+		dev_err(sec->m10bmc->dev,
+			"failed to read flash block data: %x cnt %x: %d\n",
+			addr, size / stride, ret);
+
+	return ret;
+}
+
+static int
+pmci_set_flash_host_mux(struct m10bmc_sec *sec, bool request)
+{
+	int ret;
+	u32 ctrl;
+
+	ret = regmap_update_bits(sec->m10bmc->regmap, PMCI_M10BMC_FLASH_CTRL,
+			FLASH_HOST_REQUEST,
+			request);
+	if (ret)
+		return ret;
+
+	return regmap_read_poll_timeout(sec->m10bmc->regmap,
+			PMCI_M10BMC_FLASH_CTRL,
+			ctrl,
+			request ? (get_flash_mux(ctrl) == FLASH_MUX_HOST) :
+			(get_flash_mux(ctrl) != FLASH_MUX_HOST),
+			PMCI_FLASH_INT_US,
+			PMCI_FLASH_TIMEOUT_US);
+}
+
+static int
+pmci_bulk_read(struct m10bmc_sec *sec, void *buffer,
+		u32 addr, u32 size)
+{
+	int ret;
+	u32 blk_size, offset = 0, val;
+
+	if (!IS_ALIGNED(addr, 4))
+		return -EINVAL;
+
+	size = ALIGN(size, 4);
+
+	ret = pmci_set_flash_host_mux(sec, true);
+	if (ret)
+		return -EIO;
+
+	while (size) {
+		blk_size = min_t(u32, size, PMCI_READ_BLOCK_SIZE);
+
+		writel(addr + offset, sec->base + PMCI_FLASH_ADDR);
+
+		writel(FIELD_PREP(PMCI_FLASH_READ_COUNT, blk_size/4)
+				| PMCI_FLASH_RD_MODE,
+			sec->base + PMCI_FLASH_CTRL);
+
+		ret = readl_poll_timeout((sec->base + PMCI_FLASH_CTRL), val,
+				 !(val & PMCI_FLASH_BUSY),
+				 PMCI_FLASH_INT_US, PMCI_FLASH_TIMEOUT_US);
+		if (ret) {
+			dev_err(sec->dev, "%s timed out on reading flash 0x%xn",
+					__func__, val);
+			goto out;
+		}
+
+		pmci_read_fifo(sec, PMCI_FLASH_FIFO, buffer, blk_size / 4);
+		size -= blk_size;
+		offset += blk_size;
+	}
+
+	writel(0, sec->base + PMCI_FLASH_CTRL);
+	ret = pmci_set_flash_host_mux(sec, false);
+	if (ret)
+		return -EIO;
+
+out:
+	return ret;
+}
+
+#define fpga_sec_bulk_read(sec, buf, addr, size)\
+		(M10_SPI(sec->m10bmc) ? (m10bmc_bulk_read(sec, buf, addr, size)) : \
+		 (pmci_bulk_read(sec, buf, addr, size)))
+
 static ssize_t
 show_root_entry_hash(struct device *dev, u32 exp_magic,
 		     u32 prog_addr, u32 reh_addr, char *buf)
 {
 	struct m10bmc_sec *sec = dev_get_drvdata(dev);
-	unsigned int stride = regmap_get_reg_stride(sec->m10bmc->regmap);
 	int sha_num_bytes, i, cnt, ret;
 	u8 hash[REH_SHA384_SIZE];
 	u32 magic;
@@ -65,12 +167,10 @@ show_root_entry_hash(struct device *dev, u32 exp_magic,
 		return -EINVAL;
 	}
 
-	WARN_ON(sha_num_bytes % stride);
-	ret = regmap_bulk_read(sec->m10bmc->regmap, reh_addr,
-			       hash, sha_num_bytes / stride);
+	ret = fpga_sec_bulk_read(sec, hash, reh_addr, sha_num_bytes);
 	if (ret) {
 		dev_err(dev, "failed to read root entry hash: %x cnt %x: %d\n",
-			reh_addr, sha_num_bytes / stride, ret);
+			reh_addr, sha_num_bytes, ret);
 		return ret;
 	}
 
@@ -99,21 +199,17 @@ DEVICE_ATTR_SEC_REH_RO(pr, PR_PROG_MAGIC, PR_PROG_ADDR, PR_REH_ADDR);
 static ssize_t
 show_canceled_csk(struct device *dev, u32 addr, char *buf)
 {
-	unsigned int i, stride, size = CSK_32ARRAY_SIZE * sizeof(u32);
+	unsigned int i, size = CSK_32ARRAY_SIZE * sizeof(u32);
 	struct m10bmc_sec *sec = dev_get_drvdata(dev);
 	DECLARE_BITMAP(csk_map, CSK_BIT_LEN);
 	__le32 csk_le32[CSK_32ARRAY_SIZE];
 	u32 csk32[CSK_32ARRAY_SIZE];
 	int ret;
 
-	stride = regmap_get_reg_stride(sec->m10bmc->regmap);
-
-	WARN_ON(size % stride);
-	ret = regmap_bulk_read(sec->m10bmc->regmap, addr, csk_le32,
-			       size / stride);
+	ret = fpga_sec_bulk_read(sec, csk_le32, addr, size);
 	if (ret) {
 		dev_err(sec->dev, "failed to read CSK vector: %x cnt %x: %d\n",
-			addr, size / stride, ret);
+			addr, size, ret);
 		return ret;
 	}
 
@@ -144,24 +240,22 @@ static ssize_t flash_count_show(struct device *dev,
 				struct device_attribute *attr, char *buf)
 {
 	struct m10bmc_sec *sec = dev_get_drvdata(dev);
-	unsigned int stride, num_bits;
+	unsigned int num_bits;
 	u8 *flash_buf;
 	int cnt, ret;
 
-	stride = regmap_get_reg_stride(sec->m10bmc->regmap);
 	num_bits = FLASH_COUNT_SIZE * 8;
 
 	flash_buf = kmalloc(FLASH_COUNT_SIZE, GFP_KERNEL);
 	if (!flash_buf)
 		return -ENOMEM;
 
-	WARN_ON(FLASH_COUNT_SIZE % stride);
-	ret = regmap_bulk_read(sec->m10bmc->regmap, STAGING_FLASH_COUNT,
-			       flash_buf, FLASH_COUNT_SIZE / stride);
+	ret = fpga_sec_bulk_read(sec, flash_buf,
+			STAGING_FLASH_COUNT, FLASH_COUNT_SIZE);
 	if (ret) {
 		dev_err(sec->dev,
 			"failed to read flash count: %x cnt %x: %d\n",
-			STAGING_FLASH_COUNT, FLASH_COUNT_SIZE / stride, ret);
+			STAGING_FLASH_COUNT, FLASH_COUNT_SIZE, ret);
 		goto exit_free;
 	}
 	cnt = num_bits - bitmap_weight((unsigned long *)flash_buf, num_bits);
