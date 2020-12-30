@@ -317,6 +317,26 @@ static ssize_t cancel_store(struct device *dev, struct device_attribute *attr,
 }
 static DEVICE_ATTR_WO(cancel);
 
+static ssize_t user_page_slot_store(struct device *dev, struct device_attribute *attr,
+			    const char *buf, size_t count)
+{
+	struct fpga_sec_mgr *smgr = to_sec_mgr(dev);
+	u8 page;
+	int ret = 0;
+
+	if (kstrtou8(buf, 0, &page))
+		return -EINVAL;
+
+	mutex_lock(&smgr->lock);
+	if (smgr->progress != FPGA_SEC_PROG_IDLE)
+		ret = -EBUSY;
+	smgr->user_page_slot = page;
+	mutex_unlock(&smgr->lock);
+
+	return ret;
+}
+static DEVICE_ATTR_WO(user_page_slot);
+
 static umode_t
 sec_mgr_update_visible(struct kobject *kobj, struct attribute *attr, int n)
 {
@@ -335,6 +355,7 @@ static struct attribute *sec_mgr_update_attrs[] = {
 	&dev_attr_error.attr,
 	&dev_attr_remaining_size.attr,
 	&dev_attr_hw_errinfo.attr,
+	&dev_attr_user_page_slot.attr,
 	NULL,
 };
 
