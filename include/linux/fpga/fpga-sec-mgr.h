@@ -80,6 +80,7 @@ struct fpga_sec_mgr {
 	u64 hw_errinfo;			/* 64 bits of HW specific error info */
 	bool request_cancel;
 	bool driver_unload;
+	u8 user_page_slot;
 	void *priv;
 };
 

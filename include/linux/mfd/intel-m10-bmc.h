@@ -171,6 +171,10 @@ enum m10bmc_type {
 #define M10BMC_DOORBELL_OFFSET 0x400
 #define PMCI_DOORBELL_OFFSET 0x1c0
 
+#define DRBL_RSU_USER_PAGE GENMASK(15, 12)
+
+#define MAX_PMCI_USER_IMAGE_SLOTS 2
+
 #define doorbell_offset(m10bmc) \
 	(M10_SPI(m10bmc) ? \
 	M10BMC_DOORBELL_OFFSET : PMCI_DOORBELL_OFFSET)

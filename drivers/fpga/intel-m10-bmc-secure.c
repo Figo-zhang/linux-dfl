@@ -651,6 +651,24 @@ static enum fpga_sec_err m10bmc_sec_poll_complete(struct fpga_sec_mgr *smgr)
 	u32 doorbell, rsu_status;
 	int ret;
 
+	/* setting the user page slot */
+	if (M10_PMCI(sec->m10bmc) && smgr->user_page_slot) {
+		if (smgr->user_page_slot > MAX_PMCI_USER_IMAGE_SLOTS)
+			return FPGA_SEC_ERR_HW_ERROR;
+
+		ret = regmap_update_bits(sec->m10bmc->regmap,
+				 m10bmc_base(sec->m10bmc) +
+				 doorbell_offset(sec->m10bmc) +
+				 M10BMC_DOORBELL,
+				 DRBL_RSU_USER_PAGE,
+				 FIELD_PREP(DRBL_RSU_USER_PAGE,
+					 smgr->user_page_slot));
+		if (ret)
+			return FPGA_SEC_ERR_HW_ERROR;
+
+		smgr->user_page_slot = 0;
+	}
+
 	result = rsu_send_data(sec);
 	if (result != FPGA_SEC_ERR_NONE)
 		return result;

@@ -79,3 +79,12 @@ Description:	Read-only. Returns a 64 bit error value providing
 		If this file is read while a secure update is in
 		progress, then the read will fail with EBUSY.
 		Format: "0x%llx".
+
+What: 		/sys/class/fpga_sec_mgr/fpga_secX/update/user_page_slot
+Date:		December 2020
+KernelVersion:  5.11
+Contact:	Tianfei zhang <tianfei.zhang@intel.com>
+Description:	Write-only. Specify user image page slot while update user
+                image into flash which support multiple-slot for user images.
+		"1" means write image into user image slot 1, "2" means write
+		image into user image slot 2.
