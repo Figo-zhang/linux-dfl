@@ -168,6 +168,34 @@ enum m10bmc_type {
 #define PMCI_M10BMC_SYS_BASE 0x0
 #define PMCI_M10BMC_SYS_END  0xfff
 
+#define M10_SPI(m10bmc) ((m10bmc)->type == M10_D5005 || (m10bmc)->type == M10_N3000)
+#define M10_PMCI(m10bmc) ((m10bmc)->type == M10_PMCI)
+
+#define m10bmc_base(m10bmc) \
+	(M10_SPI(m10bmc) ? \
+	 M10BMC_SYS_BASE : PMCI_M10BMC_SYS_BASE)
+
+#define PMCI_M10BMC_BUILD_VER   0x0
+#define PMCI_NIOS2_FW_VERSION   0x4
+#define PMCI_M10BMC_MACADDR1    0x20
+#define PMCI_M10BMC_MACADDR2    0x24
+
+#define build_version(m10bmc) \
+	(M10_SPI(m10bmc) ? \
+	 M10BMC_BUILD_VER : PMCI_M10BMC_BUILD_VER)
+
+#define fw_version(m10bmc) \
+	(M10_SPI(m10bmc) ? \
+	 NIOS2_FW_VERSION : PMCI_NIOS2_FW_VERSION)
+
+#define mac_addr1(m10bmc) \
+	(M10_SPI(m10bmc) ? \
+	 M10BMC_MACADDR1 : PMCI_M10BMC_MACADDR1)
+
+#define mac_addr2(m10bmc) \
+	(M10_SPI(m10bmc) ? \
+	 M10BMC_MACADDR2 : PMCI_M10BMC_MACADDR2)
+
 enum m10bmc_fw_state {
 	M10BMC_FW_STATE_NORMAL,
 	M10BMC_FW_STATE_SEC_UPDATE,
@@ -178,12 +206,16 @@ enum m10bmc_fw_state {
  * @dev: this device
  * @regmap: the regmap used to access registers by m10bmc itself
  * @bmcfw_state: BMC firmware running state.
+ * @type: the type of MAX10 BMC
+ * @base: the base address of MAX10 BMC CSR register.
  */
 struct intel_m10bmc {
 	struct device *dev;
 	struct regmap *regmap;
 	struct rw_semaphore bmcfw_lock;
 	enum m10bmc_fw_state bmcfw_state;
+	enum m10bmc_type type;
+	unsigned int base;
 };
 
 /**

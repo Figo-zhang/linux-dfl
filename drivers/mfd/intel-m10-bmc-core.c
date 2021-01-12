@@ -93,14 +93,14 @@ int m10bmc_sys_read(struct intel_m10bmc *m10bmc, unsigned int offset,
 	int ret;
 
 	if (!is_handshake_sys_reg(offset))
-		return m10bmc_raw_read(m10bmc, M10BMC_SYS_BASE + (offset), val);
+		return m10bmc_raw_read(m10bmc, m10bmc->base + (offset), val);
 
 	down_read(&m10bmc->bmcfw_lock);
 
 	if (m10bmc->bmcfw_state == M10BMC_FW_STATE_SEC_UPDATE)
 		ret = -EBUSY;
 	else
-		ret = m10bmc_raw_read(m10bmc, M10BMC_SYS_BASE + (offset), val);
+		ret = m10bmc_raw_read(m10bmc, m10bmc->base + (offset), val);
 
 	up_read(&m10bmc->bmcfw_lock);
 
@@ -115,7 +115,7 @@ int m10bmc_sys_update_bits(struct intel_m10bmc *m10bmc, unsigned int offset,
 
 	if (!is_handshake_sys_reg(offset))
 		return regmap_update_bits(m10bmc->regmap,
-					  M10BMC_SYS_BASE + (offset), msk, val);
+					  m10bmc->base + (offset), msk, val);
 
 	down_read(&m10bmc->bmcfw_lock);
 
@@ -123,7 +123,7 @@ int m10bmc_sys_update_bits(struct intel_m10bmc *m10bmc, unsigned int offset,
 		ret = -EBUSY;
 	else
 		ret = regmap_update_bits(m10bmc->regmap,
-					 M10BMC_SYS_BASE + (offset), msk, val);
+					 m10bmc->base + (offset), msk, val);
 
 	up_read(&m10bmc->bmcfw_lock);
 
@@ -138,7 +138,7 @@ static ssize_t bmc_version_show(struct device *dev,
 	unsigned int val;
 	int ret;
 
-	ret = m10bmc_sys_read(ddata, M10BMC_BUILD_VER, &val);
+	ret = m10bmc_sys_read(ddata, build_version(ddata), &val);
 	if (ret)
 		return ret;
 
@@ -153,7 +153,7 @@ static ssize_t bmcfw_version_show(struct device *dev,
 	unsigned int val;
 	int ret;
 
-	ret = m10bmc_sys_read(ddata, NIOS2_FW_VERSION, &val);
+	ret = m10bmc_sys_read(ddata, fw_version(ddata), &val);
 	if (ret)
 		return ret;
 
@@ -168,11 +168,11 @@ static ssize_t mac_address_show(struct device *dev,
 	unsigned int macaddr1, macaddr2;
 	int ret;
 
-	ret = m10bmc_sys_read(max10, M10BMC_MACADDR1, &macaddr1);
+	ret = m10bmc_sys_read(max10, mac_addr1(max10), &macaddr1);
 	if (ret)
 		return ret;
 
-	ret = m10bmc_sys_read(max10, M10BMC_MACADDR2, &macaddr2);
+	ret = m10bmc_sys_read(max10, mac_addr2(max10), &macaddr2);
 	if (ret)
 		return ret;
 
@@ -193,7 +193,7 @@ static ssize_t mac_count_show(struct device *dev,
 	unsigned int macaddr2;
 	int ret;
 
-	ret = m10bmc_sys_read(max10, M10BMC_MACADDR2, &macaddr2);
+	ret = m10bmc_sys_read(max10, mac_addr2(max10), &macaddr2);
 	if (ret)
 		return ret;
 
@@ -248,13 +248,17 @@ int m10bmc_dev_init(struct m10bmc_dev *mdev)
 	init_rwsem(&ddata->bmcfw_lock);
 	ddata->dev = mdev->dev;
 	ddata->regmap = mdev->regmap;
+	ddata->type = mdev->type;
+	ddata->base = m10bmc_base(ddata);
 
 	dev_set_drvdata(mdev->dev, ddata);
 
-	ret = check_m10bmc_version(ddata);
-	if (ret) {
-		dev_err(mdev->dev, "Failed to identify m10bmc hardware\n");
-		return ret;
+	if (M10_SPI(ddata)) {
+		ret = check_m10bmc_version(ddata);
+		if (ret) {
+			dev_err(mdev->dev, "Failed to identify m10bmc hardware\n");
+			return ret;
+		}
 	}
 
 	ret = devm_device_add_groups(mdev->dev, m10bmc_groups);
