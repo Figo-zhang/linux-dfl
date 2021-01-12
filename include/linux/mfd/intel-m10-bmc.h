@@ -13,7 +13,8 @@
 /* Supported MAX10 BMC types */
 enum m10bmc_type {
 	M10_N3000,
-	M10_D5005
+	M10_D5005,
+	M10_PMCI
 };
 
 #define M10BMC_LEGACY_SYS_BASE		0x300400
@@ -163,6 +164,9 @@ enum m10bmc_type {
 
 /* Address of 4KB inverted bit vector containing staging area FLASH count */
 #define STAGING_FLASH_COUNT	0x17ffb000
+
+#define PMCI_M10BMC_SYS_BASE 0x0
+#define PMCI_M10BMC_SYS_END  0xfff
 
 enum m10bmc_fw_state {
 	M10BMC_FW_STATE_NORMAL,
