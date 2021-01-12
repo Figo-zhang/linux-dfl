@@ -182,6 +182,20 @@ struct intel_m10bmc {
 	enum m10bmc_fw_state bmcfw_state;
 };
 
+/**
+ * sturct m10bmc_dev - internal data shared by the set of Intel MAX10 BMC drivers
+ * @regmap: the regmap used to access registers by m10bmc itself
+ * @type: the type of MAX10 BMC
+ * @dev: pointer to the MFD device
+ * @m10bmc: MAX10 BMC data structure
+ */
+struct m10bmc_dev {
+	struct regmap *regmap;
+	enum m10bmc_type type;
+	struct device *dev;
+	struct intel_m10bmc m10bmc;
+};
+
 /*
  * register access helper functions.
  *
@@ -221,4 +235,5 @@ int m10bmc_fw_state_enter(struct intel_m10bmc *m10bmc,
 
 void m10bmc_fw_state_exit(struct intel_m10bmc *m10bmc);
 
+int m10bmc_dev_init(struct m10bmc_dev *mdev);
 #endif /* __MFD_INTEL_M10_BMC_H */
