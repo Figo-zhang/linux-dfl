@@ -174,12 +174,14 @@ enum m10bmc_fw_state {
  * @dev: this device
  * @regmap: the regmap used to access registers by m10bmc itself
  * @bmcfw_state: BMC firmware running state.
+ * @type: the type of MAX10 BMC
  */
 struct intel_m10bmc {
 	struct device *dev;
 	struct regmap *regmap;
 	struct rw_semaphore bmcfw_lock;
 	enum m10bmc_fw_state bmcfw_state;
+	enum m10bmc_type type;
 };
 
 /*
@@ -221,4 +223,6 @@ int m10bmc_fw_state_enter(struct intel_m10bmc *m10bmc,
 
 void m10bmc_fw_state_exit(struct intel_m10bmc *m10bmc);
 
+int m10bmc_dev_init(struct intel_m10bmc *m10bmc);
+extern const struct attribute_group m10bmc_group;
 #endif /* __MFD_INTEL_M10_BMC_H */
