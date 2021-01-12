@@ -12,6 +12,11 @@
 #include <linux/mutex.h>
 #include <linux/regmap.h>
 
+static struct mfd_cell pmci_bmc_subdevs[] = {
+	{ .name = "intel-pmci-hwmon" },
+	{ .name = "intel-pmci-secure" }
+};
+
 static struct mfd_cell m10bmc_bmc_subdevs[] = {
 	{ .name = "d5005bmc-hwmon" },
 	{ .name = "d5005bmc-secure" }
@@ -205,6 +210,10 @@ int m10bmc_dev_init(struct intel_m10bmc *m10bmc)
 	case M10_D5005:
 		cells = m10bmc_bmc_subdevs;
 		n_cell = ARRAY_SIZE(m10bmc_bmc_subdevs);
+		break;
+	case M10_PMCI:
+		cells = pmci_bmc_subdevs;
+		n_cell = ARRAY_SIZE(pmci_bmc_subdevs);
 		break;
 	default:
 		return -ENODEV;
