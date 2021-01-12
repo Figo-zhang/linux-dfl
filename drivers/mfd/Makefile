@@ -271,3 +271,4 @@ obj-$(CONFIG_MFD_SIMPLE_MFD_I2C)	+= simple-mfd-i2c.o
 intel_m10bmc-objs             := intel-m10-bmc-core.o
 obj-$(CONFIG_MFD_INTEL_M10_BMC)   += intel_m10bmc.o
 obj-$(CONFIG_MFD_INTEL_M10_BMC_SPI)   += intel-m10-bmc-spi.o
+obj-$(CONFIG_MFD_INTEL_M10_BMC_PMCI)   += intel-m10-bmc-pmci.o

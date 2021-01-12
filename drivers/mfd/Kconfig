@@ -2160,5 +2160,13 @@ config MFD_INTEL_M10_BMC_SPI
 	help
 	  Support for the Intel MAX 10 board management controller via SPI.
 
+config MFD_INTEL_M10_BMC_PMCI
+	tristate "Intel MAX 10 Board Management Controller with PMCI"
+	depends on MFD_INTEL_M10_BMC
+	depends on FPGA_DFL
+	select REGMAP_INDIRECT_REGISTER
+	help
+	  Support for the Intel MAX 10 board management controller via PMCI.
+
 endmenu
 endif
