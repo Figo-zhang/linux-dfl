@@ -175,6 +175,24 @@ enum m10bmc_type {
 #define PMCI_M10BMC_MACADDR1    0x20
 #define PMCI_M10BMC_MACADDR2    0x24
 
+#define PMCI_M10BMC_FLASH_CTRL 0x1d0
+#define FLASH_MUX_SELECTION GENMASK(2, 0)
+#define FLASH_MUX_IDLE 0
+#define FLASH_MUX_NIOS 1
+#define FLASH_MUX_HOST 2
+#define FLASH_MUX_PFL  4
+#define get_flash_mux(mux)      FIELD_GET(FLASH_MUX_SELECTION, mux)
+
+#define FLASH_NIOS_REQUEST BIT(4)
+#define FLASH_HOST_REQUEST BIT(5)
+
+#define M10_FLASH_INT_US       1
+#define M10_FLASH_TIMEOUT_US   10000
+
+#define M10_PMCI(m10bmc) ((m10bmc)->type == M10_PMCI)
+#define M10_N3000(m10bmc) ((m10bmc)->type == M10_N3000)
+#define M10_D5005(m10bmc) ((m10bmc)->type == M10_D5005)
+
 enum m10bmc_fw_state {
 	M10BMC_FW_STATE_NORMAL,
 	M10BMC_FW_STATE_SEC_UPDATE,
