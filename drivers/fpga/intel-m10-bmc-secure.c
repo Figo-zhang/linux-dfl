@@ -419,6 +419,21 @@ m10bmc_sec_write_blk(struct fpga_sec_mgr *smgr, u32 offset, u32 size)
 	return ret ? FPGA_SEC_ERR_RW_ERROR : FPGA_SEC_ERR_NONE;
 }
 
+static enum fpga_sec_err
+pmci_sec_write_blk(struct fpga_sec_mgr *smgr, u32 offset, u32 size)
+{
+	struct m10bmc_sec *sec = smgr->priv;
+	struct intel_m10bmc *m10bmc = sec->m10bmc;
+	int ret;
+
+	if (m10bmc->flash_ops &&
+			m10bmc->flash_ops->write_blk)
+		ret = m10bmc->flash_ops->write_blk(m10bmc,
+				(void *)smgr->data + offset, size);
+
+	return ret ? FPGA_SEC_ERR_RW_ERROR : FPGA_SEC_ERR_NONE;
+}
+
 /*
  * m10bmc_sec_poll_complete() is called after handing things off to
  * the BMC firmware. Depending on the type of update, it could be
@@ -740,14 +755,17 @@ m10bmc_sops_create(struct device *dev, enum m10bmc_type type)
 		return NULL;
 
 	sops->prepare = m10bmc_sec_prepare;
-	sops->write_blk = m10bmc_sec_write_blk;
 	sops->poll_complete = m10bmc_sec_poll_complete;
 	sops->cancel = m10bmc_sec_cancel;
 	sops->get_hw_errinfo = m10bmc_sec_hw_errinfo;
+	if (type == M10_PMCI)
+		sops->write_blk = pmci_sec_write_blk;
+	else
+		sops->write_blk = m10bmc_sec_write_blk;
 
 	if (type == M10_N3000)
 		sops->image_load = n3000_image_load_hndlrs;
-	else
+	else if (type == M10_D5005)
 		sops->image_load = d5005_image_load_hndlrs;
 
 	return sops;
@@ -771,6 +789,10 @@ static int m10bmc_secure_probe(struct platform_device *pdev)
 
 	sec->dev = &pdev->dev;
 	sec->m10bmc = dev_get_drvdata(pdev->dev.parent);
+
+	if (type == M10_PMCI && !sec->m10bmc->flash_ops)
+		return -EINVAL;
+
 	dev_set_drvdata(&pdev->dev, sec);
 
 	smgr = devm_fpga_sec_mgr_create(sec->dev, "Max10 BMC Secure Update",
@@ -791,6 +813,10 @@ static const struct platform_device_id intel_m10bmc_secure_ids[] = {
 	{
 		.name = "d5005bmc-secure",
 		.driver_data = (unsigned long)M10_D5005,
+	},
+	{
+		.name = "intel-pmci-secure",
+		.driver_data = (unsigned long)M10_PMCI,
 	},
 	{ }
 };
