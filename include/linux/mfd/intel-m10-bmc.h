@@ -84,10 +84,10 @@ enum m10bmc_type {
 #define M10BMC_TELEM_END		0x33c
 
 /* Secure update doorbell register, in system register region */
-#define M10BMC_DOORBELL			0x400
+#define M10BMC_DOORBELL			0x0
 
 /* Authorization Result register, in system register region */
-#define M10BMC_AUTH_RESULT		0x404
+#define M10BMC_AUTH_RESULT		0x4
 
 /* Doorbell register fields */
 #define DRBL_RSU_REQUEST		BIT(0)
@@ -220,6 +220,12 @@ enum m10bmc_type {
 #define PMCI_FLASH_ADDR 0x44
 #define PMCI_FLASH_FIFO 0x800
 #define PMCI_READ_BLOCK_SIZE 0x800
+
+#define M10BMC_DOORBELL_OFFSET 0x400
+#define PMCI_DOORBELL_OFFSET 0x1c0
+#define doorbell_offset(m10bmc) \
+	(M10_SPI(m10bmc) ? \
+	 M10BMC_DOORBELL_OFFSET : PMCI_DOORBELL_OFFSET)
 
 enum m10bmc_fw_state {
 	M10BMC_FW_STATE_NORMAL,
