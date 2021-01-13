@@ -196,6 +196,31 @@ enum m10bmc_type {
 	(M10_SPI(m10bmc) ? \
 	 M10BMC_MACADDR2 : PMCI_M10BMC_MACADDR2)
 
+#define PMCI_M10BMC_FLASH_CTRL 0x1d0
+#define FLASH_MUX_SELECTION GENMASK(2, 0)
+#define FLASH_MUX_IDLE 0
+#define FLASH_MUX_NIOS 1
+#define FLASH_MUX_HOST 2
+#define FLASH_MUX_PFL  4
+#define get_flash_mux(mux)      FIELD_GET(FLASH_MUX_SELECTION, mux)
+
+#define FLASH_NIOS_REQUEST BIT(4)
+#define FLASH_HOST_REQUEST BIT(5)
+
+#define PMCI_FLASH_CTRL 0x40
+#define PMCI_FLASH_WR_MODE BIT(0)
+#define PMCI_FLASH_RD_MODE BIT(1)
+#define PMCI_FLASH_BUSY    BIT(2)
+#define PMCI_FLASH_FIFO_SPACE GENMASK(13, 4)
+#define PMCI_FLASH_READ_COUNT GENMASK(25, 16)
+
+#define PMCI_FLASH_INT_US       1
+#define PMCI_FLASH_TIMEOUT_US   10000
+
+#define PMCI_FLASH_ADDR 0x44
+#define PMCI_FLASH_FIFO 0x800
+#define PMCI_READ_BLOCK_SIZE 0x800
+
 enum m10bmc_fw_state {
 	M10BMC_FW_STATE_NORMAL,
 	M10BMC_FW_STATE_SEC_UPDATE,
@@ -208,6 +233,7 @@ enum m10bmc_fw_state {
  * @bmcfw_state: BMC firmware running state.
  * @type: the type of MAX10 BMC
  * @base: the base address of MAX10 BMC CSR register.
+ * @flash_ops: operations for flash controller
  */
 struct intel_m10bmc {
 	struct device *dev;
@@ -216,6 +242,7 @@ struct intel_m10bmc {
 	enum m10bmc_fw_state bmcfw_state;
 	enum m10bmc_type type;
 	unsigned int base;
+	const struct fpga_flash_ops *flash_ops;
 };
 
 /**
@@ -230,6 +257,16 @@ struct m10bmc_dev {
 	enum m10bmc_type type;
 	struct device *dev;
 	struct intel_m10bmc m10bmc;
+};
+
+/**
+ * struct fpga_flash_ops - device specific operations for flash controller
+ * @write_blk: write a block of data to flash
+ * @read_blk: read a block of data from flash
+ */
+struct fpga_flash_ops {
+	int (*write_blk)(struct intel_m10bmc *m10bmc, void *buf, u32 size);
+	int (*read_blk)(struct intel_m10bmc *m10bmc, void *buf, u32 addr, u32 size);
 };
 
 /*
