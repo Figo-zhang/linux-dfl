@@ -657,6 +657,87 @@ static int m10bmc_sec_bmc_image_load_1(struct fpga_sec_mgr *smgr)
 	return m10bmc_sec_bmc_image_load(smgr, 1);
 }
 
+static int pmci_sec_bmc_image_load(struct fpga_sec_mgr *smgr,
+				     unsigned int val)
+{
+	struct m10bmc_sec *sec = smgr->priv;
+	u32 doorbell;
+	int ret;
+
+	if (val > 1) {
+		dev_err(sec->dev, "%s invalid reload val = %d\n",
+			__func__, val);
+		return -EINVAL;
+	}
+
+	ret = m10bmc_sys_read(sec->m10bmc, m10bmc_base(sec->m10bmc) +
+			M10BMC_DOORBELL, &doorbell);
+	if (ret)
+		return ret;
+
+	if (doorbell & PMCI_DRBL_REBOOT_DISABLED)
+		return -EBUSY;
+
+	return regmap_update_bits(sec->m10bmc->regmap,
+			m10bmc_base(sec->m10bmc) +
+			PMCI_M10BMC_MAX10_RECONF,
+			PMCI_MAX10_REBOOT_REQ | PMCI_MAX10_REBOOT_PAGE,
+			FIELD_PREP(PMCI_MAX10_REBOOT_PAGE, val) |
+			PMCI_MAX10_REBOOT_REQ);
+}
+
+static int pmci_sec_fpga_image_load(struct fpga_sec_mgr *smgr,
+				     unsigned int val)
+{
+	struct m10bmc_sec *sec = smgr->priv;
+	int ret;
+
+	if (val > 2) {
+		dev_err(sec->dev, "%s invalid reload val = %d\n",
+			__func__, val);
+		return -EINVAL;
+	}
+
+	ret = regmap_update_bits(sec->m10bmc->regmap,
+			m10bmc_base(sec->m10bmc) +
+			PMCI_M10BMC_FPGA_RECONF,
+			PMCI_FPGA_RP_LOAD, 0);
+	if (ret)
+		return ret;
+
+	return regmap_update_bits(sec->m10bmc->regmap,
+			m10bmc_base(sec->m10bmc) +
+			PMCI_M10BMC_FPGA_RECONF,
+			PMCI_FPGA_RECONF_PAGE | PMCI_FPGA_RP_LOAD,
+			FIELD_PREP(PMCI_FPGA_RECONF_PAGE, val) |
+			PMCI_FPGA_RP_LOAD);
+}
+
+static int pmci_sec_bmc_image_load_0(struct fpga_sec_mgr *smgr)
+{
+	return pmci_sec_bmc_image_load(smgr, 0);
+}
+
+static int pmci_sec_bmc_image_load_1(struct fpga_sec_mgr *smgr)
+{
+	return pmci_sec_bmc_image_load(smgr, 1);
+}
+
+static int pmci_sec_fpga_image_load_0(struct fpga_sec_mgr *smgr)
+{
+	return pmci_sec_fpga_image_load(smgr, 0);
+}
+
+static int pmci_sec_fpga_image_load_1(struct fpga_sec_mgr *smgr)
+{
+	return pmci_sec_fpga_image_load(smgr, 1);
+}
+
+static int pmci_sec_fpga_image_load_2(struct fpga_sec_mgr *smgr)
+{
+	return pmci_sec_fpga_image_load(smgr, 2);
+}
+
 static int retimer_check_idle(struct m10bmc_sec *sec)
 {
 	u32 doorbell;
@@ -842,6 +923,30 @@ static struct image_load d5005_image_load_hndlrs[] = {
 	{}
 };
 
+static struct image_load pmci_image_load_hndlrs[] = {
+	{
+		.name = "bmc_factory",
+		.load_image = pmci_sec_bmc_image_load_0,
+	},
+	{
+		.name = "bmc_user",
+		.load_image = pmci_sec_bmc_image_load_1,
+	},
+	{
+		.name = "fpga_factory",
+		.load_image = pmci_sec_fpga_image_load_0,
+	},
+	{
+		.name = "fpga_user1",
+		.load_image = pmci_sec_fpga_image_load_1,
+	},
+	{
+		.name = "fpga_user2",
+		.load_image = pmci_sec_fpga_image_load_2,
+	},
+	{}
+};
+
 static struct fpga_sec_mgr_ops *
 m10bmc_sops_create(struct device *dev, enum m10bmc_type type)
 {
@@ -855,9 +960,10 @@ m10bmc_sops_create(struct device *dev, enum m10bmc_type type)
 	sops->poll_complete = m10bmc_sec_poll_complete;
 	sops->cancel = m10bmc_sec_cancel;
 	sops->get_hw_errinfo = m10bmc_sec_hw_errinfo;
-	if (type == M10_PMCI)
+	if (type == M10_PMCI) {
 		sops->write_blk = pmci_sec_write_blk;
-	else
+		sops->image_load = pmci_image_load_hndlrs;
+	} else
 		sops->write_blk = m10bmc_sec_write_blk;
 
 	if (type == M10_N3000)
