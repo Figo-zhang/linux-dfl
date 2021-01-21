@@ -92,14 +92,14 @@ int m10bmc_sys_read(struct intel_m10bmc *m10bmc, unsigned int offset,
 	int ret;
 
 	if (!is_handshake_sys_reg(offset))
-		return m10bmc_raw_read(m10bmc, M10BMC_SYS_BASE + (offset), val);
+		return m10bmc_raw_read(m10bmc, m10bmc->csr->base + (offset), val);
 
 	down_read(&m10bmc->bmcfw_lock);
 
 	if (m10bmc->bmcfw_state == M10BMC_FW_STATE_SEC_UPDATE)
 		ret = -EBUSY;
 	else
-		ret = m10bmc_raw_read(m10bmc, M10BMC_SYS_BASE + (offset), val);
+		ret = m10bmc_raw_read(m10bmc, m10bmc->csr->base + (offset), val);
 
 	up_read(&m10bmc->bmcfw_lock);
 
@@ -114,7 +114,7 @@ int m10bmc_sys_update_bits(struct intel_m10bmc *m10bmc, unsigned int offset,
 
 	if (!is_handshake_sys_reg(offset))
 		return regmap_update_bits(m10bmc->regmap,
-					  M10BMC_SYS_BASE + (offset), msk, val);
+					  m10bmc->csr->base + (offset), msk, val);
 
 	down_read(&m10bmc->bmcfw_lock);
 
@@ -122,7 +122,7 @@ int m10bmc_sys_update_bits(struct intel_m10bmc *m10bmc, unsigned int offset,
 		ret = -EBUSY;
 	else
 		ret = regmap_update_bits(m10bmc->regmap,
-					 M10BMC_SYS_BASE + (offset), msk, val);
+					 m10bmc->csr->base + (offset), msk, val);
 
 	up_read(&m10bmc->bmcfw_lock);
 
@@ -135,7 +135,7 @@ int m10bmc_show_bmc_version(struct intel_m10bmc *m10bmc, char *buf)
 	unsigned int val;
 	int ret;
 
-	ret = m10bmc_sys_read(m10bmc, M10BMC_BUILD_VER, &val);
+	ret = m10bmc_sys_read(m10bmc, m10bmc->csr->build_version, &val);
 	if (ret)
 		return ret;
 
@@ -148,7 +148,7 @@ int m10bmc_show_bmcfw_version(struct intel_m10bmc *m10bmc, char *buf)
 	unsigned int val;
 	int ret;
 
-	ret = m10bmc_sys_read(m10bmc, NIOS2_FW_VERSION, &val);
+	ret = m10bmc_sys_read(m10bmc, m10bmc->csr->fw_version, &val);
 	if (ret)
 		return ret;
 
@@ -161,11 +161,11 @@ int m10bmc_show_mac_address(struct intel_m10bmc *m10bmc, char *buf)
 	unsigned int macaddr1, macaddr2;
 	int ret;
 
-	ret = m10bmc_sys_read(m10bmc, M10BMC_MACADDR1, &macaddr1);
+	ret = m10bmc_sys_read(m10bmc, m10bmc->csr->mac_addr1, &macaddr1);
 	if (ret)
 		return ret;
 
-	ret = m10bmc_sys_read(m10bmc, M10BMC_MACADDR2, &macaddr2);
+	ret = m10bmc_sys_read(m10bmc, m10bmc->csr->mac_addr2, &macaddr2);
 	if (ret)
 		return ret;
 
@@ -184,7 +184,7 @@ int m10bmc_show_mac_count(struct intel_m10bmc *m10bmc, char *buf)
 	unsigned int macaddr2;
 	int ret;
 
-	ret = m10bmc_sys_read(m10bmc, M10BMC_MACADDR2, &macaddr2);
+	ret = m10bmc_sys_read(m10bmc, m10bmc->csr->mac_addr2, &macaddr2);
 	if (ret)
 		return ret;
 

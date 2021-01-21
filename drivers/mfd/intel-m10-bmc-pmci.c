@@ -91,6 +91,14 @@ static struct attribute *m10bmc_attrs[] = {
 };
 ATTRIBUTE_GROUPS(m10bmc);
 
+static const struct m10bmc_csr pmci_m10bmc_csr = {
+	.base = PMCI_M10BMC_SYS_BASE,
+	.build_version = PMCI_M10BMC_BUILD_VER,
+	.fw_version = PMCI_NIOS2_FW_VERSION,
+	.mac_addr1 = PMCI_M10BMC_MACADDR1,
+	.mac_addr2 = PMCI_M10BMC_MACADDR2,
+};
+
 static int pmci_probe(struct dfl_device *ddev)
 {
 	struct device *dev = &ddev->dev;
@@ -103,6 +111,7 @@ static int pmci_probe(struct dfl_device *ddev)
 	pmci->m10bmc.dev = dev;
 	pmci->dev = dev;
 	pmci->m10bmc.type = M10_PMCI;
+	pmci->m10bmc.csr = &pmci_m10bmc_csr;
 
 	pmci->base = devm_ioremap_resource(dev, &ddev->mmio_res);
 	if (IS_ERR(pmci->base))
