@@ -92,14 +92,14 @@ int m10bmc_sys_read(struct intel_m10bmc *m10bmc, unsigned int offset,
 	int ret;
 
 	if (!is_handshake_sys_reg(offset))
-		return m10bmc_raw_read(m10bmc, M10BMC_SYS_BASE + (offset), val);
+		return m10bmc_raw_read(m10bmc, m10bmc->csr->base + (offset), val);
 
 	down_read(&m10bmc->bmcfw_lock);
 
 	if (m10bmc->bmcfw_state == M10BMC_FW_STATE_SEC_UPDATE)
 		ret = -EBUSY;
 	else
-		ret = m10bmc_raw_read(m10bmc, M10BMC_SYS_BASE + (offset), val);
+		ret = m10bmc_raw_read(m10bmc, m10bmc->csr->base + (offset), val);
 
 	up_read(&m10bmc->bmcfw_lock);
 
@@ -114,7 +114,7 @@ int m10bmc_sys_update_bits(struct intel_m10bmc *m10bmc, unsigned int offset,
 
 	if (!is_handshake_sys_reg(offset))
 		return regmap_update_bits(m10bmc->regmap,
-					  M10BMC_SYS_BASE + (offset), msk, val);
+					  m10bmc->csr->base + (offset), msk, val);
 
 	down_read(&m10bmc->bmcfw_lock);
 
@@ -122,7 +122,7 @@ int m10bmc_sys_update_bits(struct intel_m10bmc *m10bmc, unsigned int offset,
 		ret = -EBUSY;
 	else
 		ret = regmap_update_bits(m10bmc->regmap,
-					 M10BMC_SYS_BASE + (offset), msk, val);
+					 m10bmc->csr->base + (offset), msk, val);
 
 	up_read(&m10bmc->bmcfw_lock);
 
@@ -137,7 +137,7 @@ static ssize_t bmc_version_show(struct device *dev,
 	unsigned int val;
 	int ret;
 
-	ret = m10bmc_sys_read(ddata, M10BMC_BUILD_VER, &val);
+	ret = m10bmc_sys_read(ddata, ddata->csr->build_version, &val);
 	if (ret)
 		return ret;
 
@@ -152,7 +152,7 @@ static ssize_t bmcfw_version_show(struct device *dev,
 	unsigned int val;
 	int ret;
 
-	ret = m10bmc_sys_read(ddata, NIOS2_FW_VERSION, &val);
+	ret = m10bmc_sys_read(ddata, ddata->csr->fw_version, &val);
 	if (ret)
 		return ret;
 
@@ -167,11 +167,11 @@ static ssize_t mac_address_show(struct device *dev,
 	unsigned int macaddr1, macaddr2;
 	int ret;
 
-	ret = m10bmc_sys_read(max10, M10BMC_MACADDR1, &macaddr1);
+	ret = m10bmc_sys_read(max10, max10->csr->mac_addr1, &macaddr1);
 	if (ret)
 		return ret;
 
-	ret = m10bmc_sys_read(max10, M10BMC_MACADDR2, &macaddr2);
+	ret = m10bmc_sys_read(max10, max10->csr->mac_addr2, &macaddr2);
 	if (ret)
 		return ret;
 
@@ -192,7 +192,7 @@ static ssize_t mac_count_show(struct device *dev,
 	unsigned int macaddr2;
 	int ret;
 
-	ret = m10bmc_sys_read(max10, M10BMC_MACADDR2, &macaddr2);
+	ret = m10bmc_sys_read(max10, max10->csr->mac_addr2, &macaddr2);
 	if (ret)
 		return ret;
 

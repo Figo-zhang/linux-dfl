@@ -64,6 +64,14 @@ static const struct attribute_group *m10bmc_spi_groups[] = {
 	&m10bmc_group,
 };
 
+static const struct m10bmc_csr spi_m10bmc_csr = {
+	.base = M10BMC_SYS_BASE,
+	.build_version = M10BMC_BUILD_VER,
+	.fw_version = NIOS2_FW_VERSION,
+	.mac_addr1 = M10BMC_MACADDR1,
+	.mac_addr2 = M10BMC_MACADDR2,
+};
+
 static int intel_m10_bmc_spi_probe(struct spi_device *spi)
 {
 	const struct spi_device_id *id = spi_get_device_id(spi);
@@ -77,6 +85,7 @@ static int intel_m10_bmc_spi_probe(struct spi_device *spi)
 
 	m10bmc->dev = dev;
 	m10bmc->type = (enum m10bmc_type)id->driver_data;
+	m10bmc->csr = &spi_m10bmc_csr;
 
 	m10bmc->regmap =
 		devm_regmap_init_spi_avmm(spi, &intel_m10bmc_regmap_config);

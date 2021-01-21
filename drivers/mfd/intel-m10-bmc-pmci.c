@@ -46,6 +46,18 @@ static const struct regmap_config pmci_max10_cfg = {
 	.max_register = PMCI_M10BMC_SYS_END,
 };
 
+static const struct attribute_group *m10bmc_pmci_groups[] = {
+	&m10bmc_group,
+};
+
+static const struct m10bmc_csr pmci_m10bmc_csr = {
+	.base = PMCI_M10BMC_SYS_BASE,
+	.build_version = PMCI_M10BMC_BUILD_VER,
+	.fw_version = PMCI_NIOS2_FW_VERSION,
+	.mac_addr1 = PMCI_M10BMC_MACADDR1,
+	.mac_addr2 = PMCI_M10BMC_MACADDR2,
+};
+
 static int pmci_probe(struct dfl_device *ddev)
 {
 	struct device *dev = &ddev->dev;
@@ -58,6 +70,7 @@ static int pmci_probe(struct dfl_device *ddev)
 	pmci->m10bmc.dev = dev;
 	pmci->dev = dev;
 	pmci->m10bmc.type = M10_PMCI;
+	pmci->m10bmc.csr = &pmci_m10bmc_csr;
 
 	pmci->base = devm_ioremap_resource(dev, &ddev->mmio_res);
 	if (IS_ERR(pmci->base))
@@ -84,7 +97,7 @@ MODULE_DEVICE_TABLE(dfl, pmci_ids);
 static struct dfl_driver pmci_driver = {
 	.drv	= {
 		.name       = "dfl-pmci",
-		.dev_groups = m10bmc_groups,
+		.dev_groups = m10bmc_pmci_groups,
 	},
 	.id_table = pmci_ids,
 	.probe   = pmci_probe,
