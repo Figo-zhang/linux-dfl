@@ -70,6 +70,8 @@ static const struct m10bmc_csr spi_m10bmc_csr = {
 	.fw_version = NIOS2_FW_VERSION,
 	.mac_addr1 = M10BMC_MACADDR1,
 	.mac_addr2 = M10BMC_MACADDR2,
+	.doorbell = M10BMC_DOORBELL,
+	.auth_result = M10BMC_AUTH_RESULT,
 };
 
 static int intel_m10_bmc_spi_probe(struct spi_device *spi)

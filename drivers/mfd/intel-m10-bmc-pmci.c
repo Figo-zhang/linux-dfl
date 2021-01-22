@@ -165,6 +165,8 @@ static const struct m10bmc_csr pmci_m10bmc_csr = {
 	.fw_version = PMCI_NIOS2_FW_VERSION,
 	.mac_addr1 = PMCI_M10BMC_MACADDR1,
 	.mac_addr2 = PMCI_M10BMC_MACADDR2,
+	.doorbell = PMCI_M10BMC_DOORBELL,
+	.auth_result = PMCI_M10BMC_AUTH_RESULT,
 };
 
 static int pmci_probe(struct dfl_device *ddev)
