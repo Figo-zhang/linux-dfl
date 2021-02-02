@@ -219,6 +219,60 @@ exit_free:
 }
 static DEVICE_ATTR_RO(flash_count);
 
+static ssize_t
+power_on_image_store(struct device *dev,
+		     struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct m10bmc_sec *sec = dev_get_drvdata(dev);
+	unsigned char boot_image;
+	u32 poc = 0;
+	int ret;
+
+	ret = kstrtou8(buf, 10, &boot_image);
+	if (ret)
+		return ret;
+
+	switch (boot_image) {
+	case FPGA_POC_USER_IMAGE_1:
+		poc |= FIELD_PREP(PMCI_USER_IMAGE_PAGE, POC_USER_IMAGE_1);
+		break;
+	case FPGA_POC_USER_IMAGE_2:
+		poc |= FIELD_PREP(PMCI_USER_IMAGE_PAGE, POC_USER_IMAGE_2);
+		break;
+	case FPGA_POC_FACTORY_U1:
+		poc |= PMCI_FACTORY_IMAGE_PAGE | FIELD_PREP(PMCI_USER_IMAGE_PAGE,
+							    POC_USER_IMAGE_1);
+		break;
+	case FPGA_POC_FACTORY_U2:
+		poc |= PMCI_FACTORY_IMAGE_PAGE | FIELD_PREP(PMCI_USER_IMAGE_PAGE,
+							    POC_USER_IMAGE_2);
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	ret = m10bmc_sys_update_bits(sec->m10bmc,
+				     m10bmc_base(sec->m10bmc) + PMCI_M10BMC_FPGA_POC,
+				     PMCI_FPGA_POC |
+				     PMCI_USER_IMAGE_PAGE |
+				     PMCI_FACTORY_IMAGE_PAGE,
+				     poc | PMCI_FPGA_POC);
+	if (ret)
+		return ret;
+
+	ret = regmap_read_poll_timeout(sec->m10bmc->regmap,
+				       m10bmc_base(sec->m10bmc) + PMCI_M10BMC_FPGA_POC,
+				       poc,
+				       (!(poc & PMCI_FPGA_POC)),
+				       NIOS_HANDSHAKE_INTERVAL_US,
+				       NIOS_HANDSHAKE_TIMEOUT_US);
+	if (ret || FIELD_GET(PMCI_NIOS_STATUS, poc) == NIOS_STATUS_FAIL)
+		return -EIO;
+
+	return count;
+}
+static DEVICE_ATTR_WO(power_on_image);
+
 static struct attribute *m10bmc_security_attrs[] = {
 	&dev_attr_flash_count.attr,
 	&dev_attr_bmc_root_entry_hash.attr,
@@ -227,6 +281,7 @@ static struct attribute *m10bmc_security_attrs[] = {
 	&dev_attr_sr_canceled_csks.attr,
 	&dev_attr_pr_canceled_csks.attr,
 	&dev_attr_bmc_canceled_csks.attr,
+	&dev_attr_power_on_image.attr,
 	NULL,
 };
 

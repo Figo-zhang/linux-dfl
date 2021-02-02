@@ -59,3 +59,19 @@ Contact:	Russ Weight <russell.h.weight@intel.com>
 Description:	Read only. Returns number of times the secure update
 		staging area has been flashed.
 		Format: "%u".
+
+What:           /sys/bus/platform/devices/n3000bmc-secure.*.auto/security/power_on_image
+Date:		January 2021
+KernelVersion:  5.12
+Contact:	Tianfei zhang <tianfei.zhang@intel.com>
+Description:	Write only. Setting the image to be configured of the FPGA during next boot.
+
+		- "1": User image 1.
+		       Fallback sequence: User Image 1 -> User Image 2 -> Factory Image
+		- "2": User image 2.
+		       Fallback sequence: User Image 2 -> User Image 1 -> Factory Image
+		- "3": Factory image.
+		       Fallback sequence: Factory Image -> User Image 1 -> User Image 2
+		- "4": Factory image.
+		       Fallback sequence: Factory Image -> User Image 2 -> User Image 1
+		Format: "%u".
