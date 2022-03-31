@@ -50,46 +50,57 @@ Date:		August 2019
 KernelVersion:  5.4
 Contact:	Wu Hao <hao.wu@intel.com>
 Description:	Read-Write. Read this file for errors detected on pcie0 link.
-		Write this file to clear errors logged in pcie0_errors. Write
-		fails with -EINVAL if input parsing fails or input error code
-		doesn't match.
+		The readout value has embedded 4 bits revision attribution
+		in Bit[59:56] which reserved by hardware. Write this file to
+		clear errors logged in pcie0_errors. Clean Bit[59:56] before
+		write this file. Write fails with -EINVAL if input parsing
+		fails or input error code doesn't match.
 
 What:		/sys/bus/platform/devices/dfl-fme.0/errors/pcie1_errors
 Date:		August 2019
 KernelVersion:  5.4
 Contact:	Wu Hao <hao.wu@intel.com>
 Description:	Read-Write. Read this file for errors detected on pcie1 link.
-		Write this file to clear errors logged in pcie1_errors. Write
-		fails with -EINVAL if input parsing fails or input error code
-		doesn't match.
+		The readout value has embedded 4 bits revision attribution
+		in Bit[59:56] which reserved by hardware. Write this file to
+		clear errors logged in pcie1_errors. Clean Bit[59:56] before
+		write this file. Write fails with -EINVAL if input parsing fails
+		or input error code doesn't match.
 
 What:		/sys/bus/platform/devices/dfl-fme.0/errors/nonfatal_errors
 Date:		August 2019
 KernelVersion:  5.4
 Contact:	Wu Hao <hao.wu@intel.com>
-Description:	Read-only. It returns non-fatal errors detected.
+Description:	Read-only. It returns non-fatal errors detected. The readout
+		value has embedded 4 bits revision attribution in Bit[59:56]
+		which reserved by hardware.
 
 What:		/sys/bus/platform/devices/dfl-fme.0/errors/catfatal_errors
 Date:		August 2019
 KernelVersion:  5.4
 Contact:	Wu Hao <hao.wu@intel.com>
 Description:	Read-only. It returns catastrophic and fatal errors detected.
+		The readout value has embedded 4 bits revision attribution in
+		Bit[59:56] which reserved by hardware.
 
 What:		/sys/bus/platform/devices/dfl-fme.0/errors/inject_errors
 Date:		August 2019
 KernelVersion:  5.4
 Contact:	Wu Hao <hao.wu@intel.com>
-Description:	Read-Write. Read this file to check errors injected. Write this
-		file to inject errors for testing purpose. Write fails with
-		-EINVAL if input parsing fails or input inject error code isn't
-		supported.
+Description:	Read-Write. Read this file to check errors injected. The readout
+		value has embedded 4 bits revision attribution which reserved by
+		hardware. Write this file to inject errors for testing purpose.
+		Clean Bit[59:56] before write this file. Write fails with -EINVAL
+		if input parsing fails or input inject error code isn't supported.
 
 What:		/sys/bus/platform/devices/dfl-fme.0/errors/fme_errors
 Date:		August 2019
 KernelVersion:  5.4
 Contact:	Wu Hao <hao.wu@intel.com>
-Description:	Read-Write. Read this file to get errors detected on FME.
-		Write this file to clear errors logged in fme_errors. Write
+Description:	Read-Write. Read this file to get errors detected on FME. The
+		readout value has embedded 4 bits revision attribution which
+		reserved by hardware. Write this file to clear errors logged
+		in fme_errors. Clean Bit[59:56] before write this file. Write
 		fials with -EINVAL if input parsing fails or input error code
 		doesn't match.
 

@@ -39,6 +39,22 @@
 
 #define ERROR_MASK		GENMASK_ULL(63, 0)
 
+/* Bit[59:56] was reserved by software for error revision */
+#define ERROR_SW_REVISION_MASK GENMASK_ULL(59, 56)
+
+static u64 set_error_revision(struct device *dev, u64 value)
+{
+	void __iomem *base;
+	u64 revision;
+	u64 dfh;
+
+	base = dfl_get_feature_ioaddr_by_id(dev, FME_FEATURE_ID_GLOBAL_ERR);
+	dfh = readq(base);
+	revision = FIELD_GET(DFH_REVISION, dfh);
+
+	return value | FIELD_PREP(ERROR_SW_REVISION_MASK, revision);
+}
+
 static ssize_t pcie0_errors_show(struct device *dev,
 				 struct device_attribute *attr, char *buf)
 {
@@ -52,7 +68,8 @@ static ssize_t pcie0_errors_show(struct device *dev,
 	value = readq(base + PCIE0_ERROR);
 	mutex_unlock(&pdata->lock);
 
-	return sprintf(buf, "0x%llx\n", (unsigned long long)value);
+	return sprintf(buf, "0x%llx\n",
+		       (unsigned long long)set_error_revision(dev, value));
 }
 
 static ssize_t pcie0_errors_store(struct device *dev,
@@ -97,7 +114,8 @@ static ssize_t pcie1_errors_show(struct device *dev,
 	value = readq(base + PCIE1_ERROR);
 	mutex_unlock(&pdata->lock);
 
-	return sprintf(buf, "0x%llx\n", (unsigned long long)value);
+	return sprintf(buf, "0x%llx\n",
+		       (unsigned long long)set_error_revision(dev, value));
 }
 
 static ssize_t pcie1_errors_store(struct device *dev,
@@ -133,11 +151,13 @@ static ssize_t nonfatal_errors_show(struct device *dev,
 				    struct device_attribute *attr, char *buf)
 {
 	void __iomem *base;
+	u64 value;
 
 	base = dfl_get_feature_ioaddr_by_id(dev, FME_FEATURE_ID_GLOBAL_ERR);
+	value = readq(base + RAS_NONFAT_ERROR);
 
 	return sprintf(buf, "0x%llx\n",
-		       (unsigned long long)readq(base + RAS_NONFAT_ERROR));
+		       (unsigned long long)set_error_revision(dev, value));
 }
 static DEVICE_ATTR_RO(nonfatal_errors);
 
@@ -145,11 +165,13 @@ static ssize_t catfatal_errors_show(struct device *dev,
 				    struct device_attribute *attr, char *buf)
 {
 	void __iomem *base;
+	u64 value;
 
 	base = dfl_get_feature_ioaddr_by_id(dev, FME_FEATURE_ID_GLOBAL_ERR);
+	value = readq(base + RAS_CATFAT_ERROR);
 
 	return sprintf(buf, "0x%llx\n",
-		       (unsigned long long)readq(base + RAS_CATFAT_ERROR));
+		       (unsigned long long)set_error_revision(dev, value));
 }
 static DEVICE_ATTR_RO(catfatal_errors);
 
@@ -165,9 +187,10 @@ static ssize_t inject_errors_show(struct device *dev,
 	mutex_lock(&pdata->lock);
 	v = readq(base + RAS_ERROR_INJECT);
 	mutex_unlock(&pdata->lock);
+	v = FIELD_GET(INJECT_ERROR_MASK, v);
 
 	return sprintf(buf, "0x%llx\n",
-		       (unsigned long long)FIELD_GET(INJECT_ERROR_MASK, v));
+		       (unsigned long long)set_error_revision(dev, v));
 }
 
 static ssize_t inject_errors_store(struct device *dev,
@@ -211,7 +234,8 @@ static ssize_t fme_errors_show(struct device *dev,
 	value = readq(base + FME_ERROR);
 	mutex_unlock(&pdata->lock);
 
-	return sprintf(buf, "0x%llx\n", (unsigned long long)value);
+	return sprintf(buf, "0x%llx\n",
+		       (unsigned long long)set_error_revision(dev, value));
 }
 
 static ssize_t fme_errors_store(struct device *dev,
