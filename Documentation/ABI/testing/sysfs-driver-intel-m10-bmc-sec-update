@@ -59,3 +59,44 @@ Contact:	Russ Weight <russell.h.weight@intel.com>
 Description:	Read only. Returns number of times the secure update
 		staging area has been flashed.
 		Format: "%u".
+
+What:		/sys/bus/platform/drivers/intel-m10bmc-sec-update/.../control/available_images
+Date:		Aug 2022
+KernelVersion:  6.0
+Contact:	Russ Weight <russell.h.weight@intel.com>
+Description:	Read-only. This file returns a space separated list of
+		key words that may be written into the image_load file
+		described below. These keywords decribe an FPGA, BMC,
+		or firmware image in FLASH or EEPROM storage that may
+		be loaded.
+
+What:		/sys/bus/platform/drivers/intel-m10bmc-sec-update/.../control/image_load
+Date:		Aug 2022
+KernelVersion:  6.0
+Contact:	Russ Weight <russell.h.weight@intel.com>
+Description:	Write-only. A key word may be written to this file to
+		trigger a reload of an FPGA, BMC, or firmware image from
+		FLASH or EEPROM. Refer to the available_images file for a
+		list of supported key words for the underlying device.
+		Writing an unsupported string to this file will result in
+		EINVAL being returned.
+		It should remove all of resources related to the old FPGA/BMC
+		image before trigger the image reload otherwise the functionality
+		of FPGA/BMC will fail. We recommended that follow the below steps
+		or directly use the OPAE RSU script to perform the reload for FPGA/BMC
+		image.
+		Here is the steps to trigger the reload for FPGA/BMC image:
+		1. Unbind driver from all VFs to be affected by the trigger.
+		2. Disable all VFs via "/sys/bus/pic/device/xxxx/sriov_numvfs"
+		sysfs file.
+		3. Unbind driver from all PFs affectected by the trigger except the
+		management PF.
+		4. Disable AER on all PFs and upstream pci root port.
+		5. Trigger image reload of FPGA and/or other programmable devices.
+	        6. Hot-remove the PCI devices of the FPGA card via
+		"/sys/bus/pci/devices/xxxx/remove" sysfs file.
+		7. Wait for reconfiguration of FPGA an/or other programmable parts
+		(e.g. 10 seconds)
+		8. Re-scan PCI bus.
+		9. Renable the AER on all PFs and upstream root port.
+		10. Bring up VFs as desired.
