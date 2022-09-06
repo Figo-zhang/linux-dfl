@@ -731,6 +731,7 @@ exit:
 
 static int fme_remove(struct platform_device *pdev)
 {
+	printk("%s\n", __func__);
 	dfl_fpga_dev_ops_unregister(pdev);
 	dfl_fpga_dev_feature_uinit(pdev);
 	fme_dev_destroy(pdev);

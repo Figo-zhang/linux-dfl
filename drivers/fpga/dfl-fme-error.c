@@ -346,6 +346,7 @@ static int fme_global_err_init(struct platform_device *pdev,
 static void fme_global_err_uinit(struct platform_device *pdev,
 				 struct dfl_feature *feature)
 {
+	printk("%s\n", __func__);
 	fme_err_mask(&pdev->dev, true);
 }
 

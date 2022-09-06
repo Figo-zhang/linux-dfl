@@ -289,8 +289,10 @@ static void dfl_bus_remove(struct device *dev)
 	struct dfl_driver *ddrv = to_dfl_drv(dev->driver);
 	struct dfl_device *ddev = to_dfl_dev(dev);
 
-	if (ddrv->remove)
+	if (ddrv->remove) {
+		printk("%s %s\n", __func__, dev_name(dev));
 		ddrv->remove(ddev);
+	}
 }
 
 static int dfl_bus_uevent(struct device *dev, struct kobj_uevent_env *env)
@@ -338,6 +340,8 @@ static struct bus_type dfl_bus_type = {
 static void release_dfl_dev(struct device *dev)
 {
 	struct dfl_device *ddev = to_dfl_dev(dev);
+
+	printk("%s %s\n", __func__, dev_name(dev));
 
 	if (ddev->mmio_res.parent)
 		release_resource(&ddev->mmio_res);
@@ -429,6 +433,7 @@ static void dfl_devs_remove(struct dfl_feature_platform_data *pdata)
 
 	dfl_fpga_dev_for_each_feature(pdata, feature) {
 		if (feature->ddev) {
+			printk("%s: feature id: 0x%x, %s\n", __func__, feature->ddev->feature_id, dev_name(&feature->ddev->dev));
 			device_unregister(&feature->ddev->dev);
 			feature->ddev = NULL;
 		}
@@ -496,6 +501,7 @@ void dfl_fpga_dev_feature_uinit(struct platform_device *pdev)
 	struct dfl_feature *feature;
 
 	dfl_devs_remove(pdata);
+	printk("%s\n", __func__);
 
 	dfl_fpga_dev_for_each_feature(pdata, feature) {
 		if (feature->ops) {
@@ -598,6 +604,8 @@ EXPORT_SYMBOL_GPL(dfl_fpga_dev_feature_init);
 static void dfl_chardev_uinit(void)
 {
 	int i;
+
+	printk("%s\n", __func__);
 
 	for (i = 0; i < DFL_FPGA_DEVT_MAX; i++)
 		if (MAJOR(dfl_chrdevs[i].devt)) {
@@ -1376,6 +1384,8 @@ static int remove_feature_dev(struct device *dev, void *data)
 	enum dfl_id_type type = feature_dev_id_type(pdev);
 	int id = pdev->id;
 
+	printk("%s, %s\n", __func__, dfl_devs[type].name);
+
 	platform_device_unregister(pdev);
 
 	dfl_id_free(type, id);
@@ -1566,6 +1576,8 @@ int dfl_fpga_cdev_release_port(struct dfl_fpga_cdev *cdev, int port_id)
 	struct dfl_feature_platform_data *pdata;
 	struct platform_device *port_pdev;
 	int ret = -ENODEV;
+
+	printk("%s\n", __func__);
 
 	mutex_lock(&cdev->lock);
 	port_pdev = __dfl_fpga_cdev_find_port(cdev, &port_id,
@@ -1881,6 +1893,7 @@ EXPORT_SYMBOL_GPL(dfl_feature_ioctl_set_irq);
 
 static void __exit dfl_fpga_exit(void)
 {
+	printk("%s\n", __func__);
 	dfl_chardev_uinit();
 	dfl_ids_destroy();
 	bus_unregister(&dfl_bus_type);

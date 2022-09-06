@@ -936,6 +936,8 @@ static int afu_remove(struct platform_device *pdev)
 {
 	dev_dbg(&pdev->dev, "%s\n", __func__);
 
+	printk("%s\n", __func__);
+
 	dfl_fpga_dev_ops_unregister(pdev);
 	dfl_fpga_dev_feature_uinit(pdev);
 	afu_dev_destroy(pdev);
@@ -974,6 +976,8 @@ static int __init afu_init(void)
 
 static void __exit afu_exit(void)
 {
+	printk("%s\n", __func__);
+
 	platform_driver_unregister(&afu_driver);
 
 	dfl_fpga_port_ops_del(&afu_port_ops);

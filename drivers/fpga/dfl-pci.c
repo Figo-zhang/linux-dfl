@@ -426,6 +426,7 @@ static int cci_pci_sriov_configure(struct pci_dev *pcidev, int num_vfs)
 
 static void cci_pci_remove(struct pci_dev *pcidev)
 {
+	printk("%s\n", __func__);
 	if (dev_is_pf(&pcidev->dev))
 		cci_pci_sriov_configure(pcidev, 0);
 

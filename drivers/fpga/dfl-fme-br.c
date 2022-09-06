@@ -83,6 +83,8 @@ static int fme_br_remove(struct platform_device *pdev)
 	struct fpga_bridge *br = platform_get_drvdata(pdev);
 	struct fme_br_priv *priv = br->priv;
 
+	printk("%s\n", __func__);
+
 	fpga_bridge_unregister(br);
 
 	if (priv->port_pdev)
