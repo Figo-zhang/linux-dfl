@@ -24,6 +24,7 @@
 #include <linux/aer.h>
 
 #include "dfl.h"
+#include "dfl-fpga-reload.h"
 
 #define DRV_VERSION	"0.8"
 #define DRV_NAME	"dfl-pci"
@@ -38,6 +39,57 @@
 
 struct cci_drvdata {
 	struct dfl_fpga_cdev *cdev;	/* container device */
+};
+
+static int dfl_fpga_reload_prepare(struct dfl_fpga_reload *dfl_reload)
+{
+	struct pci_dev *pcidev = dfl_reload->priv;
+	struct pci_bus *bus = pcidev->bus;
+	struct pci_dev *child, *tmp;
+	struct cci_drvdata *drvdata = pci_get_drvdata(pcidev);
+	struct dfl_fpga_cdev *cdev = drvdata->cdev;
+	struct platform_device *fme = to_platform_device(cdev->fme_dev);
+
+	printk("pcidev: %04x:%02x:%02x.%d", pci_domain_nr(pcidev->bus),
+		     pcidev->bus->number, PCI_SLOT(pcidev->devfn),
+		     PCI_FUNC(pcidev->devfn));
+
+	printk("remove all of PFs/VFs except FP0\n");
+	if (bus) { 
+		list_for_each_entry_safe_reverse(child, tmp,
+						 &bus->devices, bus_list)
+			if (child != pcidev) {
+				printk("%04x:%02x:%02x.%d", pci_domain_nr(child->bus),
+					child->bus->number, PCI_SLOT(child->devfn),
+					PCI_FUNC(child->devfn));
+				pci_stop_and_remove_bus_device_locked(child);
+			}
+	}
+
+	/* remove some fme devices for reload */
+	dfl_fpga_reload_remove_fme_devs(fme);
+
+	/* remove all AFU devices */
+	dfl_fpga_remove_afus(cdev);
+
+	return 0;
+}
+
+static int dfl_fpga_reload_remove(struct dfl_fpga_reload *dfl_reload)
+{
+	struct pci_dev *pcidev = dfl_reload->priv;
+
+	printk("%s===\n", __func__);
+
+	/* remove FP0 PCI dev */
+	pci_stop_and_remove_bus_device_locked(pcidev);
+
+	return 0;
+}
+
+static const struct dfl_fpga_reload_ops reload_ops = {
+	.prepare = dfl_fpga_reload_prepare,
+	.remove  = dfl_fpga_reload_remove,
 };
 
 static void __iomem *cci_pci_ioremap_bar0(struct pci_dev *pcidev)
@@ -288,6 +340,7 @@ static int find_dfls_by_default(struct pci_dev *pcidev,
 	return ret;
 }
 
+
 /* enumerate feature devices under pci device */
 static int cci_enumerate_feature_devs(struct pci_dev *pcidev)
 {
@@ -336,8 +389,18 @@ static int cci_enumerate_feature_devs(struct pci_dev *pcidev)
 		goto irq_free_exit;
 	}
 
+	cdev->dfl_reload = dfl_fpga_reload_dev_register(cdev->fme_dev, &reload_ops, pcidev);
+	if (IS_ERR(cdev->dfl_reload)) {
+		dev_err(&pcidev->dev, "dfl fpga reload register failure\n");
+		ret = PTR_ERR(cdev->dfl_reload);
+		goto free_cdev;
+	}
+
 	drvdata->cdev = cdev;
 
+free_cdev:
+	if (ret)
+		dfl_fpga_feature_devs_remove(cdev);
 irq_free_exit:
 	if (ret)
 		cci_pci_free_irq(pcidev);

@@ -22,6 +22,7 @@
 #include <linux/spi/altera.h>
 #include <linux/spi/spi.h>
 #include <linux/types.h>
+#include "dfl.h"
 
 /*
  * N3000 Nios private feature registers, named as NIOS_SPI_XX on spec.
@@ -560,10 +561,10 @@ static void n3000_nios_remove(struct dfl_device *ddev)
 {
 	struct n3000_nios *nn = dev_get_drvdata(&ddev->dev);
 
+	printk("%s \n", __func__);
+
 	destroy_altera_spi_controller(nn);
 }
-
-#define FME_FEATURE_ID_N3000_NIOS	0xd
 
 static const struct dfl_device_id n3000_nios_ids[] = {
 	{ FME_ID, FME_FEATURE_ID_N3000_NIOS },

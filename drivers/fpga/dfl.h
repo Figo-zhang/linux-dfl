@@ -27,6 +27,7 @@
 #include <linux/slab.h>
 #include <linux/uuid.h>
 #include <linux/fpga/fpga-region.h>
+#include "dfl-fpga-reload.h"
 
 /* maximum supported number of ports */
 #define MAX_DFL_FPGA_PORT_NUM 4
@@ -45,6 +46,7 @@
 #define FME_FEATURE_ID_PR_MGMT		0x5
 #define FME_FEATURE_ID_HSSI		0x6
 #define FME_FEATURE_ID_GLOBAL_DPERF	0x7
+#define FME_FEATURE_ID_N3000_NIOS	0xd
 
 #define PORT_FEATURE_ID_HEADER		FEATURE_ID_FIU_HEADER
 #define PORT_FEATURE_ID_AFU		FEATURE_ID_AFU
@@ -478,11 +480,14 @@ struct dfl_fpga_cdev {
 	struct mutex lock;
 	struct list_head port_dev_list;
 	int released_port_num;
+	struct dfl_fpga_reload *dfl_reload;
 };
 
 struct dfl_fpga_cdev *
 dfl_fpga_feature_devs_enumerate(struct dfl_fpga_enum_info *info);
 void dfl_fpga_feature_devs_remove(struct dfl_fpga_cdev *cdev);
+void dfl_fpga_remove_afus(struct dfl_fpga_cdev *cdev);
+void dfl_fpga_reload_remove_fme_devs(struct platform_device *pdev);
 
 /*
  * need to drop the device reference with put_device() after use port platform
