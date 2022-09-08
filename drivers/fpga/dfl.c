@@ -1419,8 +1419,15 @@ EXPORT_SYMBOL_GPL(dfl_fpga_enum_info_add_irq);
 static int remove_feature_dev(struct device *dev, void *data)
 {
 	struct platform_device *pdev = to_platform_device(dev);
-	enum dfl_id_type type = feature_dev_id_type(pdev);
-	int id = pdev->id;
+	enum dfl_id_type type;
+	int id;
+
+	/* pdev has released */
+	if (!device_is_registered(&pdev->dev))
+		return 0;
+
+	type = feature_dev_id_type(pdev);
+	id = pdev->id;
 
 	printk("%s, %s, %s\n", __func__, dfl_devs[type].name, pdev->name);
 
@@ -1526,9 +1533,10 @@ void dfl_fpga_remove_afus(struct dfl_fpga_cdev *cdev)
 		enum dfl_id_type type = feature_dev_id_type(port_dev);
 		int id = port_dev->id;
 		printk("%s: %s\n", __func__, port_dev->name);
+		
 		list_del(&pdata->node);
 		port_dev->dev.parent = NULL;
-		put_device(&port_dev->dev);
+
 		platform_device_unregister(port_dev);
 		dfl_id_free(type, id);
 	}

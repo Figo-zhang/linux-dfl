@@ -75,21 +75,8 @@ static int dfl_fpga_reload_prepare(struct dfl_fpga_reload *dfl_reload)
 	return 0;
 }
 
-static int dfl_fpga_reload_remove(struct dfl_fpga_reload *dfl_reload)
-{
-	struct pci_dev *pcidev = dfl_reload->priv;
-
-	printk("%s===\n", __func__);
-
-	/* remove FP0 PCI dev */
-	pci_stop_and_remove_bus_device_locked(pcidev);
-
-	return 0;
-}
-
 static const struct dfl_fpga_reload_ops reload_ops = {
 	.prepare = dfl_fpga_reload_prepare,
-	.remove  = dfl_fpga_reload_remove,
 };
 
 static void __iomem *cci_pci_ioremap_bar0(struct pci_dev *pcidev)
@@ -389,7 +376,7 @@ static int cci_enumerate_feature_devs(struct pci_dev *pcidev)
 		goto irq_free_exit;
 	}
 
-	cdev->dfl_reload = dfl_fpga_reload_dev_register(cdev->fme_dev, &reload_ops, pcidev);
+	cdev->dfl_reload = dfl_fpga_reload_dev_register(THIS_MODULE, &reload_ops, pcidev);
 	if (IS_ERR(cdev->dfl_reload)) {
 		dev_err(&pcidev->dev, "dfl fpga reload register failure\n");
 		ret = PTR_ERR(cdev->dfl_reload);
@@ -489,9 +476,14 @@ static int cci_pci_sriov_configure(struct pci_dev *pcidev, int num_vfs)
 
 static void cci_pci_remove(struct pci_dev *pcidev)
 {
+	struct cci_drvdata *drvdata = pci_get_drvdata(pcidev);
+	struct dfl_fpga_cdev *cdev = drvdata->cdev;
+
 	printk("%s\n", __func__);
 	if (dev_is_pf(&pcidev->dev))
 		cci_pci_sriov_configure(pcidev, 0);
+
+	dfl_fpga_reload_dev_unregister(cdev->dfl_reload);
 
 	cci_remove_feature_devs(pcidev);
 	pci_disable_pcie_error_reporting(pcidev);

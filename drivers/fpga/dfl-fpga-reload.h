@@ -13,12 +13,14 @@ struct dfl_fpga_reload_ops {
 
 struct dfl_fpga_reload {
 	struct device dev;
+	struct module *module;
 	const struct dfl_fpga_reload_ops *ops;
+	struct mutex lock;    /* protect data structure contents */
 	void *priv;
 };
 
 struct dfl_fpga_reload *
-dfl_fpga_reload_dev_register(struct device *parent,
+dfl_fpga_reload_dev_register(struct module *module,
                 const struct dfl_fpga_reload_ops *ops, void *priv);
 void dfl_fpga_reload_dev_unregister(struct dfl_fpga_reload *dfl_reload);
 
