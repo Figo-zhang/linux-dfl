@@ -15,6 +15,58 @@ static struct dfl_fpga_reload *dfl_reload;
 
 #define to_dfl_fpga_reload(d) container_of(d, struct dfl_fpga_reload, dev)
 
+#if defined(CONFIG_PCIEAER)
+
+static int dfl_fpga_mask_aer(struct dfl_fpga_reload *dfl_reload, struct pci_dev *root)
+{
+	u32 aer_pos;
+
+	printk("%s===0\n", __func__);
+
+	printk("%04x:%02x:%02x.%d", pci_domain_nr(root->bus),
+					root->bus->number, PCI_SLOT(root->devfn),
+					PCI_FUNC(root->devfn));
+
+	//pci_save_aer_state(root);
+
+	aer_pos = pci_find_ext_capability(root, PCI_EXT_CAP_ID_ERR);
+	if (!aer_pos)
+		return -EINVAL;
+
+	printk("%s===1\n", __func__);
+
+	pci_read_config_dword(root, aer_pos + PCI_ERR_UNCOR_MASK, &dfl_reload->aer_uncor_mask);
+	pci_read_config_dword(root, aer_pos + PCI_ERR_COR_MASK, &dfl_reload->aer_cor_mask);
+
+	pci_write_config_dword(root, aer_pos + PCI_ERR_UNCOR_MASK, 0xffffffff);
+	pci_write_config_dword(root, aer_pos + PCI_ERR_COR_MASK, 0xffffffff);
+
+	return 0;
+}
+
+static int dfl_fpga_unmask_aer(struct dfl_fpga_reload *dfl_reload, struct pci_dev *root)
+{
+	u32 aer_pos;
+
+	pci_write_config_dword(root, aer_pos + PCI_ERR_UNCOR_MASK, dfl_reload->aer_uncor_mask);
+	pci_write_config_dword(root, aer_pos + PCI_ERR_COR_MASK, dfl_reload->aer_cor_mask);
+
+	//pci_restore_aer_state(root);
+
+	return 0;
+}
+#else
+static int dfl_fpga_mask_aer(struct dfl_fpga_reload *dfl_reload, struct pci_dev *root)
+{
+	return 0;
+}
+
+static int dfl_fpga_unmask_aer(struct dfl_fpga_reload *dfl_reload, struct pci_dev *root)
+{
+	return 0;
+}
+#endif
+
 static void dfl_fpga_reload_rescan_pci_bus(void)
 {
 	struct pci_bus *b = NULL;
@@ -66,6 +118,7 @@ static ssize_t reload_store(struct device *dev,
                                const char *buf, size_t count)
 {
 	struct dfl_fpga_reload *dfl_reload = to_dfl_fpga_reload(dev);
+	struct pci_dev *pcidev, *root;
 	struct dfl_fpga_trigger *trigger = &dfl_reload->trigger;
 	int ret = -EINVAL;
 
@@ -73,7 +126,15 @@ static ssize_t reload_store(struct device *dev,
 			!trigger->ops || !trigger->priv)
 		return -EINVAL;
 
+	pcidev = dfl_reload->priv;
+
+	root = pcie_find_root_port(pcidev);
+	if (!root)
+		return -EINVAL;
+
 	mutex_lock(&dfl_reload->lock);
+
+	dfl_fpga_mask_aer(dfl_reload, root);
 
 	/* 1. remove total non-reserved devices */
 	if (dfl_reload->ops->prepare)
@@ -83,15 +144,19 @@ static ssize_t reload_store(struct device *dev,
 	if (trigger->ops->image_trigger)
 		ret = trigger->ops->image_trigger(trigger, buf);
 
+	mdelay(100);
+
 	/* 3. remove reserved device*/
 	dfl_fpga_reload_remove(dfl_reload);
 
 	/* 4. wait 10s*/
 	if (!ret)
-		msleep(10*1000);
+		mdelay(20*1000);
 
 	/* 5. rescan the PCI bus*/
 	dfl_fpga_reload_rescan_pci_bus();
+
+	dfl_fpga_unmask_aer(dfl_reload, root);
 
 	mutex_unlock(&dfl_reload->lock);
 

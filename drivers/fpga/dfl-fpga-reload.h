@@ -29,6 +29,8 @@ struct dfl_fpga_reload {
 	const struct dfl_fpga_reload_ops *ops;
 	struct mutex lock;    /* protect data structure contents */
 	struct dfl_fpga_trigger trigger;
+	u32 aer_uncor_mask;
+	u32 aer_cor_mask;
 	void *priv;
 };
 

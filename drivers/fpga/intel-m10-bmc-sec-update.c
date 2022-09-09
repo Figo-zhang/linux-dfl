@@ -180,6 +180,8 @@ static int m10bmc_image_trigger(struct dfl_fpga_trigger *trigger, const char *bu
 		}
 	}
 
+	printk("%s===ret %d\n", __func__, ret);
+
 	return ret;
 }
 
@@ -271,6 +273,8 @@ static int m10bmc_sec_bmc_image_load(struct m10bmc_sec *sec,
 
 	if (doorbell & DRBL_REBOOT_DISABLED)
 		return -EBUSY;
+
+	printk("%s===\n", __func__);
 
 	return regmap_update_bits(sec->m10bmc->regmap,
 				  M10BMC_SYS_BASE + M10BMC_DOORBELL,
