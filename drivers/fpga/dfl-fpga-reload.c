@@ -1,5 +1,6 @@
 #include <linux/dfl.h>
 #include <linux/pci.h>
+#include <linux/aer.h>
 #include <linux/fpga-dfl.h>
 #include <linux/module.h>
 #include <linux/uaccess.h>
@@ -33,6 +34,7 @@ static int dfl_fpga_reload_remove(struct dfl_fpga_reload *dfl_reload)
 	printk("%s== remove FP0==\n", __func__);
 
 	/* remove FP0 PCI dev */
+	//pci_disable_pcie_error_reporting(pcidev);
 	pci_stop_and_remove_bus_device_locked(pcidev);
 
 	return 0;
@@ -41,7 +43,22 @@ static int dfl_fpga_reload_remove(struct dfl_fpga_reload *dfl_reload)
 static ssize_t available_images_show(struct device *dev,
 			   struct device_attribute *attr, char *buf)
 {
-	return 0;
+	struct dfl_fpga_reload *dfl_reload = to_dfl_fpga_reload(dev);
+	struct dfl_fpga_trigger *trigger = &dfl_reload->trigger;
+	ssize_t count = 0;
+
+	if (!dfl_reload->ops || !dfl_reload->priv ||
+			!trigger->ops || !trigger->priv)
+		return -EINVAL;
+
+	if (!trigger->ops->available_images)
+		return -EINVAL;
+
+	mutex_lock(&dfl_reload->lock);
+	count = trigger->ops->available_images(trigger, buf);
+	mutex_unlock(&dfl_reload->lock);
+
+	return count;
 }
 
 static ssize_t reload_store(struct device *dev,
@@ -49,22 +66,36 @@ static ssize_t reload_store(struct device *dev,
                                const char *buf, size_t count)
 {
 	struct dfl_fpga_reload *dfl_reload = to_dfl_fpga_reload(dev);
+	struct dfl_fpga_trigger *trigger = &dfl_reload->trigger;
+	int ret = -EINVAL;
 
-	if (!dfl_reload->ops || !dfl_reload->priv)
+	if (!dfl_reload->ops || !dfl_reload->priv ||
+			!trigger->ops || !trigger->priv)
 		return -EINVAL;
 
 	mutex_lock(&dfl_reload->lock);
 
+	/* 1. remove total non-reserved devices */
 	if (dfl_reload->ops->prepare)
 		dfl_reload->ops->prepare(dfl_reload);
 
+	/* 2. trigger BMC reload */
+	if (trigger->ops->image_trigger)
+		ret = trigger->ops->image_trigger(trigger, buf);
+
+	/* 3. remove reserved device*/
 	dfl_fpga_reload_remove(dfl_reload);
 
+	/* 4. wait 10s*/
+	if (!ret)
+		msleep(10*1000);
+
+	/* 5. rescan the PCI bus*/
 	dfl_fpga_reload_rescan_pci_bus();
 
 	mutex_unlock(&dfl_reload->lock);
 
-	return count;
+	return ret ? : count;
 }
 
 static DEVICE_ATTR_RO(available_images);
@@ -76,6 +107,36 @@ static struct attribute *dfl_fpga_reload_attrs[] = {
 	NULL,
 };
 ATTRIBUTE_GROUPS(dfl_fpga_reload);
+
+struct dfl_fpga_trigger *
+dfl_fpga_reload_trigger_register(struct module *module,
+                const struct dfl_fpga_trigger_ops *ops, void *priv)
+{
+	struct dfl_fpga_trigger *trigger = &dfl_reload->trigger;
+
+	if (!ops){
+		dev_err(&dfl_reload->dev, "Attempt to register without all required ops\n");
+		return ERR_PTR(-EINVAL);
+	}
+
+	//if (!try_module_get(module))
+	//	return ERR_PTR(-EFAULT);
+
+	trigger->priv = priv;
+	trigger->ops = ops;
+
+	return trigger;
+}
+EXPORT_SYMBOL_GPL(dfl_fpga_reload_trigger_register);
+
+void dfl_fpga_reload_trigger_unregister(struct dfl_fpga_trigger *trigger)
+{
+
+	trigger->priv = NULL;
+	trigger->ops = NULL;
+	//module_put(dfl_reload->module);
+}
+EXPORT_SYMBOL_GPL(dfl_fpga_reload_trigger_unregister);
 
 struct dfl_fpga_reload *
 dfl_fpga_reload_dev_register(struct module *module,

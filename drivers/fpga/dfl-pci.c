@@ -62,6 +62,7 @@ static int dfl_fpga_reload_prepare(struct dfl_fpga_reload *dfl_reload)
 				printk("%04x:%02x:%02x.%d", pci_domain_nr(child->bus),
 					child->bus->number, PCI_SLOT(child->devfn),
 					PCI_FUNC(child->devfn));
+				//pci_disable_pcie_error_reporting(child);
 				pci_stop_and_remove_bus_device_locked(child);
 			}
 	}

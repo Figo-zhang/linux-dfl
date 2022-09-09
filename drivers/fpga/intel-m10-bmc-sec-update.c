@@ -13,6 +13,7 @@
 #include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/slab.h>
+#include "dfl-fpga-reload.h"
 
 struct image_load;
 
@@ -24,6 +25,7 @@ struct m10bmc_sec {
 	u32 fw_name_id;
 	bool cancel_request;
 	struct image_load *image_load;	/* terminated with { } member */
+	struct dfl_fpga_trigger *trigger;
 };
 
 struct image_load {
@@ -145,12 +147,13 @@ DEVICE_ATTR_SEC_CSK_RO(pr, PR_PROG_ADDR + CSK_VEC_OFFSET);
 
 #define FLASH_COUNT_SIZE 4096	/* count stored as inverted bit vector */
 
-static ssize_t available_images_show(struct device *dev,
-				     struct device_attribute *attr, char *buf)
+static ssize_t m10bmc_available_images(struct dfl_fpga_trigger *trigger, char *buf)
 {
-	struct m10bmc_sec *sec = dev_get_drvdata(dev);
+	struct m10bmc_sec *sec = trigger->priv;
 	const struct image_load *hndlr;
 	ssize_t count = 0;
+
+	printk("%s===\n", __func__);
 
 	for (hndlr = sec->image_load; hndlr->name; hndlr++) {
 		count += scnprintf(buf + count, PAGE_SIZE - count,
@@ -161,15 +164,14 @@ static ssize_t available_images_show(struct device *dev,
 
 	return count;
 }
-static DEVICE_ATTR_RO(available_images);
 
-static ssize_t image_load_store(struct device *dev,
-				struct device_attribute *attr,
-				const char *buf, size_t count)
+static int m10bmc_image_trigger(struct dfl_fpga_trigger *trigger, const char *buf)
 {
-	struct m10bmc_sec *sec = dev_get_drvdata(dev);
+	struct m10bmc_sec *sec = trigger->priv;
 	const struct image_load *hndlr;
 	int ret = -EINVAL;
+
+	printk("%s===\n", __func__);
 
 	for (hndlr = sec->image_load; hndlr->name; hndlr++) {
 		if (sysfs_streq(buf, hndlr->name)) {
@@ -178,20 +180,8 @@ static ssize_t image_load_store(struct device *dev,
 		}
 	}
 
-	return ret ? : count;
+	return ret;
 }
-static DEVICE_ATTR_WO(image_load);
-
-static struct attribute *m10bmc_control_attrs[] = {
-	&dev_attr_available_images.attr,
-	&dev_attr_image_load.attr,
-	NULL,
-};
-
-static struct attribute_group m10bmc_control_attr_group = {
-	.name = "control",
-	.attrs = m10bmc_control_attrs,
-};
 
 static ssize_t flash_count_show(struct device *dev,
 				struct device_attribute *attr, char *buf)
@@ -251,7 +241,6 @@ static struct attribute_group m10bmc_security_attr_group = {
 
 static const struct attribute_group *m10bmc_sec_attr_groups[] = {
 	&m10bmc_security_attr_group,
-	&m10bmc_control_attr_group,
 	NULL,
 };
 
@@ -653,6 +642,11 @@ static const struct fw_upload_ops m10bmc_ops = {
 	.cleanup = m10bmc_sec_cleanup,
 };
 
+static const struct dfl_fpga_trigger_ops trigger_ops = {
+	.image_trigger = m10bmc_image_trigger,
+	.available_images = m10bmc_available_images,	
+};
+
 #define SEC_UPDATE_LEN_MAX 32
 static int m10bmc_sec_probe(struct platform_device *pdev)
 {
@@ -692,6 +686,16 @@ static int m10bmc_sec_probe(struct platform_device *pdev)
 	}
 
 	sec->fwl = fwl;
+
+	sec->trigger = dfl_fpga_reload_trigger_register(THIS_MODULE, &trigger_ops, sec);
+	if (IS_ERR(sec->trigger)) {
+		dev_err(sec->dev, "register trigger failed\n");
+		kfree(sec->fw_name);
+		xa_erase(&fw_upload_xa, sec->fw_name_id);
+		firmware_upload_unregister(sec->fwl);
+		return PTR_ERR(sec->trigger);
+	}
+
 	return 0;
 }
 
@@ -701,6 +705,7 @@ static int m10bmc_sec_remove(struct platform_device *pdev)
 
 	printk("%s\n", __func__);
 
+	dfl_fpga_reload_trigger_unregister(sec->trigger);
 	firmware_upload_unregister(sec->fwl);
 	kfree(sec->fw_name);
 	xa_erase(&fw_upload_xa, sec->fw_name_id);
