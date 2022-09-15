@@ -48,6 +48,12 @@ static int dfl_fpga_unmask_aer(struct dfl_fpga_reload *dfl_reload, struct pci_de
 {
 	u32 aer_pos;
 
+	printk("%s===\n", __func__);
+
+	printk("%04x:%02x:%02x.%d", pci_domain_nr(root->bus),
+					root->bus->number, PCI_SLOT(root->devfn),
+					PCI_FUNC(root->devfn));
+
 	pci_write_config_dword(root, aer_pos + PCI_ERR_UNCOR_MASK, dfl_reload->aer_uncor_mask);
 	pci_write_config_dword(root, aer_pos + PCI_ERR_COR_MASK, dfl_reload->aer_cor_mask);
 
@@ -79,15 +85,13 @@ static void dfl_fpga_reload_rescan_pci_bus(void)
 	pci_unlock_rescan_remove();
 }
 
-static int dfl_fpga_reload_remove(struct dfl_fpga_reload *dfl_reload)
+static int dfl_fpga_reload_remove(struct pci_dev *root)
 {
-	struct pci_dev *pcidev = dfl_reload->priv;
-
-	printk("%s== remove FP0==\n", __func__);
+	printk("%s== remove FP0 and whole devices under root==\n", __func__);
 
 	/* remove FP0 PCI dev */
 	//pci_disable_pcie_error_reporting(pcidev);
-	pci_stop_and_remove_bus_device_locked(pcidev);
+	pci_stop_and_remove_bus_device_locked(root);
 
 	return 0;
 }
@@ -146,12 +150,12 @@ static ssize_t reload_store(struct device *dev,
 
 	mdelay(100);
 
-	/* 3. remove reserved device*/
-	dfl_fpga_reload_remove(dfl_reload);
+	/* 3. remove reserved device and the whole PCI device under root devices*/
+	dfl_fpga_reload_remove(root);
 
 	/* 4. wait 10s*/
 	if (!ret)
-		mdelay(20*1000);
+		mdelay(10*1000);
 
 	/* 5. rescan the PCI bus*/
 	dfl_fpga_reload_rescan_pci_bus();
