@@ -44,15 +44,29 @@ static int dfl_fpga_mask_aer(struct dfl_fpga_reload *dfl_reload, struct pci_dev 
 	return 0;
 }
 
-static int dfl_fpga_unmask_aer(struct dfl_fpga_reload *dfl_reload, struct pci_dev *root)
+static int dfl_fpga_unmask_aer(struct dfl_fpga_reload *dfl_reload)
 {
+	struct pci_dev *pcidev, *root;
 	u32 aer_pos;
 
 	printk("%s===\n", __func__);
 
+	pcidev = dfl_reload->priv;
+	if (!pcidev)
+		return -EINVAL;
+
+	/* refind the root hub after pci bus rescan */
+	root = pcie_find_root_port(pcidev);
+	if (!root)
+		return -EINVAL;
+
 	printk("%04x:%02x:%02x.%d", pci_domain_nr(root->bus),
 					root->bus->number, PCI_SLOT(root->devfn),
 					PCI_FUNC(root->devfn));
+
+	aer_pos = pci_find_ext_capability(root, PCI_EXT_CAP_ID_ERR);
+	if (!aer_pos)
+		return -EINVAL;
 
 	pci_write_config_dword(root, aer_pos + PCI_ERR_UNCOR_MASK, dfl_reload->aer_uncor_mask);
 	pci_write_config_dword(root, aer_pos + PCI_ERR_COR_MASK, dfl_reload->aer_cor_mask);
@@ -160,7 +174,7 @@ static ssize_t reload_store(struct device *dev,
 	/* 5. rescan the PCI bus*/
 	dfl_fpga_reload_rescan_pci_bus();
 
-	dfl_fpga_unmask_aer(dfl_reload, root);
+	dfl_fpga_unmask_aer(dfl_reload);
 
 	mutex_unlock(&dfl_reload->lock);
 
@@ -187,6 +201,8 @@ dfl_fpga_reload_trigger_register(struct module *module,
 		dev_err(&dfl_reload->dev, "Attempt to register without all required ops\n");
 		return ERR_PTR(-EINVAL);
 	}
+
+	printk("%s =====\n", __func__);
 
 	//if (!try_module_get(module))
 	//	return ERR_PTR(-EFAULT);
