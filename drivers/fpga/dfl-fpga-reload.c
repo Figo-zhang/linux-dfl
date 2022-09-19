@@ -1,6 +1,5 @@
 #include <linux/dfl.h>
 #include <linux/pci.h>
-#include <linux/aer.h>
 #include <linux/fpga-dfl.h>
 #include <linux/module.h>
 #include <linux/uaccess.h>
@@ -15,77 +14,43 @@ static struct dfl_fpga_reload *dfl_reload;
 
 #define to_dfl_fpga_reload(d) container_of(d, struct dfl_fpga_reload, dev)
 
-#if defined(CONFIG_PCIEAER)
-
-static int dfl_fpga_mask_aer(struct dfl_fpga_reload *dfl_reload, struct pci_dev *root)
+static int dfl_fpga_disable_pcie_link(struct pci_dev *root, bool disable)
 {
-	u32 aer_pos;
+	u16 linkctl;
+	int ret;
 
-	printk("%s===0\n", __func__);
-
-	printk("%04x:%02x:%02x.%d", pci_domain_nr(root->bus),
-					root->bus->number, PCI_SLOT(root->devfn),
-					PCI_FUNC(root->devfn));
-
-	//pci_save_aer_state(root);
-
-	aer_pos = pci_find_ext_capability(root, PCI_EXT_CAP_ID_ERR);
-	if (!aer_pos)
-		return -EINVAL;
-
-	printk("%s===1\n", __func__);
-
-	pci_read_config_dword(root, aer_pos + PCI_ERR_UNCOR_MASK, &dfl_reload->aer_uncor_mask);
-	pci_read_config_dword(root, aer_pos + PCI_ERR_COR_MASK, &dfl_reload->aer_cor_mask);
-
-	pci_write_config_dword(root, aer_pos + PCI_ERR_UNCOR_MASK, 0xffffffff);
-	pci_write_config_dword(root, aer_pos + PCI_ERR_COR_MASK, 0xffffffff);
-
-	return 0;
-}
-
-static int dfl_fpga_unmask_aer(struct dfl_fpga_reload *dfl_reload)
-{
-	struct pci_dev *pcidev, *root;
-	u32 aer_pos;
-
-	printk("%s===\n", __func__);
-
-	pcidev = dfl_reload->priv;
-	if (!pcidev)
-		return -EINVAL;
-
-	/* refind the root hub after pci bus rescan */
-	root = pcie_find_root_port(pcidev);
 	if (!root)
 		return -EINVAL;
 
+	printk("%s=== %d\n", __func__, disable);
+
 	printk("%04x:%02x:%02x.%d", pci_domain_nr(root->bus),
 					root->bus->number, PCI_SLOT(root->devfn),
 					PCI_FUNC(root->devfn));
 
-	aer_pos = pci_find_ext_capability(root, PCI_EXT_CAP_ID_ERR);
-	if (!aer_pos)
+	ret = pcie_capability_read_word(root, PCI_EXP_LNKCTL, &linkctl);
+	if (ret)
 		return -EINVAL;
 
-	pci_write_config_dword(root, aer_pos + PCI_ERR_UNCOR_MASK, dfl_reload->aer_uncor_mask);
-	pci_write_config_dword(root, aer_pos + PCI_ERR_COR_MASK, dfl_reload->aer_cor_mask);
+	printk("%s == linkctl 0x%x\n", __func__, linkctl);
 
-	//pci_restore_aer_state(root);
+	if (disable) {
+		if (linkctl & PCI_EXP_LNKCTL_LD)
+			goto out;
+		linkctl |= PCI_EXP_LNKCTL_LD;
+	} else {
+		if (!(linkctl & PCI_EXP_LNKCTL_LD))
+			goto out;
+		linkctl &= ~PCI_EXP_LNKCTL_LD;
+	}
 
+	ret = pcie_capability_write_word(root, PCI_EXP_LNKCTL, linkctl);
+	if (ret)
+		return ret;
+
+out:
 	return 0;
 }
-#else
-static int dfl_fpga_mask_aer(struct dfl_fpga_reload *dfl_reload, struct pci_dev *root)
-{
-	return 0;
-}
-
-static int dfl_fpga_unmask_aer(struct dfl_fpga_reload *dfl_reload, struct pci_dev *root)
-{
-	return 0;
-}
-#endif
 
 static void dfl_fpga_reload_rescan_pci_bus(void)
 {
@@ -152,9 +117,7 @@ static ssize_t reload_store(struct device *dev,
 
 	mutex_lock(&dfl_reload->lock);
 
-	dfl_fpga_mask_aer(dfl_reload, root);
-
-	/* 1. remove total non-reserved devices */
+	/* 1. remove all non-reserved devices */
 	if (dfl_reload->ops->prepare)
 		dfl_reload->ops->prepare(dfl_reload);
 
@@ -162,19 +125,25 @@ static ssize_t reload_store(struct device *dev,
 	if (trigger->ops->image_trigger)
 		ret = trigger->ops->image_trigger(trigger, buf);
 
-	mdelay(100);
+	/* 3. disable pci root hub link */
+	ret = dfl_fpga_disable_pcie_link(root, true);
+	if (ret)
+		return -EINVAL;
 
-	/* 3. remove reserved device and the whole PCI device under root devices*/
+	/* 4. remove reserved device and the whole PCI device under root devices*/
 	dfl_fpga_reload_remove(root);
 
-	/* 4. wait 10s*/
+	/* 5. Wait for FPGA/BMC reload done. eg, 10s */
 	if (!ret)
 		mdelay(10*1000);
 
-	/* 5. rescan the PCI bus*/
-	dfl_fpga_reload_rescan_pci_bus();
+	/* 6. enable pci root hub link */
+	ret = dfl_fpga_disable_pcie_link(root, false);
+	if (ret)
+		return -EINVAL;
 
-	dfl_fpga_unmask_aer(dfl_reload);
+	/* 7. rescan the PCI bus*/
+	dfl_fpga_reload_rescan_pci_bus();
 
 	mutex_unlock(&dfl_reload->lock);
 
