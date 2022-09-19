@@ -44,19 +44,9 @@ struct cci_drvdata {
 static int dfl_reload_prepare(struct dfl_fpga_reload *dfl_reload)
 {
 	struct pci_dev *pcidev = dfl_reload->priv;
-	struct pci_bus *bus = pcidev->bus;
-	struct pci_dev *sibling, *tmp;
 	struct cci_drvdata *drvdata = pci_get_drvdata(pcidev);
 	struct dfl_fpga_cdev *cdev = drvdata->cdev;
 	struct platform_device *fme = to_platform_device(cdev->fme_dev);
-
-	/* remove all PFs and VFs except the PF0 */
-	if (bus) { 
-		list_for_each_entry_safe_reverse(sibling, tmp,
-						 &bus->devices, bus_list)
-			if (sibling != pcidev)
-				pci_stop_and_remove_bus_device_locked(sibling);
-	}
 
 	/* remove all of non-reserved fme devices of FP0 */
 	dfl_reload_remove_non_reserved_devs(fme);

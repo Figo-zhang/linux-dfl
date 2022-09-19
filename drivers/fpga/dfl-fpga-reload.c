@@ -53,11 +53,6 @@ static void dfl_fpga_reload_rescan_pci_bus(void)
 	pci_unlock_rescan_remove();
 }
 
-static void dfl_fpga_reload_remove(struct pci_dev *root)
-{
-	pci_stop_and_remove_bus_device_locked(root);
-}
-
 static ssize_t available_images_show(struct device *dev,
 			   struct device_attribute *attr, char *buf)
 {
@@ -77,6 +72,19 @@ static ssize_t available_images_show(struct device *dev,
 	mutex_unlock(&dfl_reload->lock);
 
 	return count;
+}
+
+static void dfl_reload_remove_sibling_pci_dev(struct pci_dev *pcidev)
+{
+	struct pci_bus *bus = pcidev->bus;
+	struct pci_dev *sibling, *tmp;
+
+	if (bus) {
+		list_for_each_entry_safe_reverse(sibling, tmp,
+						 &bus->devices, bus_list)
+			if (sibling != pcidev)
+				pci_stop_and_remove_bus_device_locked(sibling);
+	}
 }
 
 static ssize_t reload_store(struct device *dev,
@@ -100,7 +108,10 @@ static ssize_t reload_store(struct device *dev,
 
 	mutex_lock(&dfl_reload->lock);
 
-	/* 1. remove all non-reserved devices */
+	/* 1. remove all PFs and VFs except the PF0*/
+	dfl_reload_remove_sibling_pci_dev(pcidev);
+
+	/* 2. remove all non-reserved devices */
 	if (dfl_reload->ops->prepare) {
 		ret = dfl_reload->ops->prepare(dfl_reload);
 		if (ret) {
@@ -109,7 +120,7 @@ static ssize_t reload_store(struct device *dev,
 		}
 	}
 
-	/* 2. trigger BMC reload */
+	/* 3. trigger image reload */
 	if (trigger->ops->image_trigger) {
 		ret = trigger->ops->image_trigger(trigger, buf);
 		if (ret) {
@@ -118,27 +129,27 @@ static ssize_t reload_store(struct device *dev,
 		}
 	}
 
-	/* 3. disable pci root hub link */
+	/* 4. disable pci root hub link */
 	ret = dfl_fpga_disable_pcie_link(root, true);
 	if (ret) {
 		dev_err(&dfl_reload->dev, "disable root pcie link failed\n");
 		goto out;
 	}
 
-	/* 4. remove reserved device and the whole PCI device under root devices*/
-	dfl_fpga_reload_remove(root);
+	/* 5. remove reserved devices under FP0 and PCI devices under root hub*/
+	pci_stop_and_remove_bus_device_locked(root);
 
-	/* 5. Wait for FPGA/BMC reload done. eg, 10s */
+	/* 6. Wait for FPGA/BMC reload done. eg, 10s */
 	msleep(RELOAD_TIMEOUT_MS);
 
-	/* 6. enable pci root hub link */
+	/* 7. enable pci root hub link */
 	ret = dfl_fpga_disable_pcie_link(root, false);
 	if (ret) {
 		dev_err(&dfl_reload->dev, "enable root pcie link failed\n");
 		goto out;
 	}
 
-	/* 7. rescan the PCI bus*/
+	/* 8. rescan the PCI bus*/
 	dfl_fpga_reload_rescan_pci_bus();
 
 out:
