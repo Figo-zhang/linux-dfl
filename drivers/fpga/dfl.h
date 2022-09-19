@@ -486,8 +486,8 @@ struct dfl_fpga_cdev {
 struct dfl_fpga_cdev *
 dfl_fpga_feature_devs_enumerate(struct dfl_fpga_enum_info *info);
 void dfl_fpga_feature_devs_remove(struct dfl_fpga_cdev *cdev);
-void dfl_fpga_remove_afus(struct dfl_fpga_cdev *cdev);
-void dfl_fpga_reload_remove_fme_devs(struct platform_device *pdev);
+void dfl_reload_remove_afus(struct dfl_fpga_cdev *cdev);
+void dfl_reload_remove_non_reserved_devs(struct platform_device *pdev);
 
 /*
  * need to drop the device reference with put_device() after use port platform

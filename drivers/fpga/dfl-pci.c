@@ -41,43 +41,34 @@ struct cci_drvdata {
 	struct dfl_fpga_cdev *cdev;	/* container device */
 };
 
-static int dfl_fpga_reload_prepare(struct dfl_fpga_reload *dfl_reload)
+static int dfl_reload_prepare(struct dfl_fpga_reload *dfl_reload)
 {
 	struct pci_dev *pcidev = dfl_reload->priv;
 	struct pci_bus *bus = pcidev->bus;
-	struct pci_dev *child, *tmp;
+	struct pci_dev *sibling, *tmp;
 	struct cci_drvdata *drvdata = pci_get_drvdata(pcidev);
 	struct dfl_fpga_cdev *cdev = drvdata->cdev;
 	struct platform_device *fme = to_platform_device(cdev->fme_dev);
 
-	printk("pcidev: %04x:%02x:%02x.%d", pci_domain_nr(pcidev->bus),
-		     pcidev->bus->number, PCI_SLOT(pcidev->devfn),
-		     PCI_FUNC(pcidev->devfn));
-
-	printk("remove all of PFs/VFs except FP0\n");
+	/* remove all PFs and VFs except the PF0 */
 	if (bus) { 
-		list_for_each_entry_safe_reverse(child, tmp,
+		list_for_each_entry_safe_reverse(sibling, tmp,
 						 &bus->devices, bus_list)
-			if (child != pcidev) {
-				printk("%04x:%02x:%02x.%d", pci_domain_nr(child->bus),
-					child->bus->number, PCI_SLOT(child->devfn),
-					PCI_FUNC(child->devfn));
-				//pci_disable_pcie_error_reporting(child);
-				pci_stop_and_remove_bus_device_locked(child);
-			}
+			if (sibling != pcidev)
+				pci_stop_and_remove_bus_device_locked(sibling);
 	}
 
-	/* remove some fme devices for reload */
-	dfl_fpga_reload_remove_fme_devs(fme);
+	/* remove all of non-reserved fme devices of FP0 */
+	dfl_reload_remove_non_reserved_devs(fme);
 
-	/* remove all AFU devices */
-	dfl_fpga_remove_afus(cdev);
+	/* remove all AFU devices of FP0 */
+	dfl_reload_remove_afus(cdev);
 
 	return 0;
 }
 
 static const struct dfl_fpga_reload_ops reload_ops = {
-	.prepare = dfl_fpga_reload_prepare,
+	.prepare = dfl_reload_prepare,
 };
 
 static void __iomem *cci_pci_ioremap_bar0(struct pci_dev *pcidev)

@@ -153,8 +153,6 @@ static ssize_t m10bmc_available_images(struct dfl_fpga_trigger *trigger, char *b
 	const struct image_load *hndlr;
 	ssize_t count = 0;
 
-	printk("%s===\n", __func__);
-
 	for (hndlr = sec->image_load; hndlr->name; hndlr++) {
 		count += scnprintf(buf + count, PAGE_SIZE - count,
 				   "%s ", hndlr->name);
@@ -171,16 +169,12 @@ static int m10bmc_image_trigger(struct dfl_fpga_trigger *trigger, const char *bu
 	const struct image_load *hndlr;
 	int ret = -EINVAL;
 
-	printk("%s===\n", __func__);
-
 	for (hndlr = sec->image_load; hndlr->name; hndlr++) {
 		if (sysfs_streq(buf, hndlr->name)) {
 			ret = hndlr->load_image(sec);
 			break;
 		}
 	}
-
-	printk("%s===ret %d\n", __func__, ret);
 
 	return ret;
 }
@@ -273,8 +267,6 @@ static int m10bmc_sec_bmc_image_load(struct m10bmc_sec *sec,
 
 	if (doorbell & DRBL_REBOOT_DISABLED)
 		return -EBUSY;
-
-	printk("%s===\n", __func__);
 
 	return regmap_update_bits(sec->m10bmc->regmap,
 				  M10BMC_SYS_BASE + M10BMC_DOORBELL,
@@ -706,8 +698,6 @@ static int m10bmc_sec_probe(struct platform_device *pdev)
 static int m10bmc_sec_remove(struct platform_device *pdev)
 {
 	struct m10bmc_sec *sec = dev_get_drvdata(&pdev->dev);
-
-	printk("%s\n", __func__);
 
 	dfl_fpga_reload_trigger_unregister(sec->trigger);
 	firmware_upload_unregister(sec->fwl);
