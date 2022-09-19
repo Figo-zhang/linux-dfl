@@ -8042,6 +8042,12 @@ S:	Maintained
 F:	Documentation/ABI/testing/sysfs-driver-intel-m10-bmc-sec-update
 F:	drivers/fpga/intel-m10-bmc-sec-update.c
 
+INTEL DFL FPGA IMAGE RELOAD MANAGER
+M:	Tianfei Zhang <tianfei.zhang@intel.com>
+L:	linux-fpga@vger.kernel.org
+S:	Maintained
+F:	drivers/fpga/dfl-image-reload.c
+
 MICROCHIP POLARFIRE FPGA DRIVERS
 M:	Conor Dooley <conor.dooley@microchip.com>
 R:	Ivan Bornyakov <i.bornyakov@metrotek.ru>
