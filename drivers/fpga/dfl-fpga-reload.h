@@ -9,7 +9,7 @@ struct dfl_fpga_trigger;
 
 /**
  * struct dfl_fpga_reload_ops - image reload specific operations
- * @prepare: Required: Prepare image reload
+ * @prepare: Required: Prepare image reload, remove non-reserved devices
  */
 struct dfl_fpga_reload_ops {
 	int (*prepare)(struct dfl_fpga_reload *dfl_reload);
@@ -26,19 +26,15 @@ struct dfl_fpga_trigger_ops {
 };
 
 struct dfl_fpga_trigger {
-	struct module *module;
 	const struct dfl_fpga_trigger_ops *ops;
 	void *priv;
 };
 
 struct dfl_fpga_reload {
 	struct device dev;
-	struct module *module;
 	const struct dfl_fpga_reload_ops *ops;
 	struct mutex lock;    /* protect data structure contents */
 	struct dfl_fpga_trigger trigger;
-	u32 aer_uncor_mask;
-	u32 aer_cor_mask;
 	void *priv;
 };
 
