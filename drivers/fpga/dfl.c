@@ -290,7 +290,6 @@ static void dfl_bus_remove(struct device *dev)
 	struct dfl_device *ddev = to_dfl_dev(dev);
 
 	if (ddrv->remove) {
-		printk("%s %s\n", __func__, dev_name(dev));
 		ddrv->remove(ddev);
 	}
 }
@@ -340,8 +339,6 @@ static struct bus_type dfl_bus_type = {
 static void release_dfl_dev(struct device *dev)
 {
 	struct dfl_device *ddev = to_dfl_dev(dev);
-
-	printk("%s %s\n", __func__, dev_name(dev));
 
 	if (ddev->mmio_res.parent)
 		release_resource(&ddev->mmio_res);
@@ -433,7 +430,6 @@ static void dfl_devs_remove(struct dfl_feature_platform_data *pdata)
 
 	dfl_fpga_dev_for_each_feature(pdata, feature) {
 		if (feature->ddev) {
-			printk("%s: feature id: 0x%x, %s\n", __func__, feature->ddev->feature_id, dev_name(&feature->ddev->dev));
 			device_unregister(&feature->ddev->dev);
 			feature->ddev = NULL;
 		}
@@ -493,30 +489,29 @@ EXPORT_SYMBOL(dfl_driver_unregister);
 
 #define is_reload_reserved_dev(ddev) (ddev->feature_id == FME_FEATURE_ID_N3000_NIOS)
 
-static void dfl_devs_remove_reload(struct dfl_feature_platform_data *pdata)
+static void dfl_devs_remove_non_reserved(struct dfl_feature_platform_data *pdata)
 {
 	struct dfl_feature *feature;
 
 	dfl_fpga_dev_for_each_feature(pdata, feature) {
 		if (!feature->ddev)
 			continue;
+
+		/* skip reserved subdevices */
 		if (is_reload_reserved_dev(feature->ddev))
 			continue;
 
-		struct device *dev = &feature->ddev->dev;
-		printk("%s: feature id: 0x%x, %s\n", __func__, feature->ddev->feature_id, dev_name(dev));
-		device_unregister(dev);
+		device_unregister(&feature->ddev->dev);
 		feature->ddev = NULL;
 	}
 }
 
-void dfl_fpga_reload_remove_fme_devs(struct platform_device *pdev)
+void dfl_reload_remove_non_reserved_devs(struct platform_device *pdev)
 {
 	struct dfl_feature_platform_data *pdata = dev_get_platdata(&pdev->dev);
 	struct dfl_feature *feature;
 
-	printk("%s\n", __func__);
-	dfl_devs_remove_reload(pdata);
+	dfl_devs_remove_non_reserved(pdata);
 
 	dfl_fpga_dev_for_each_feature(pdata, feature) {
 		if (feature->ops) {
@@ -526,7 +521,7 @@ void dfl_fpga_reload_remove_fme_devs(struct platform_device *pdev)
 		}
 	}
 }
-EXPORT_SYMBOL_GPL(dfl_fpga_reload_remove_fme_devs);
+EXPORT_SYMBOL_GPL(dfl_reload_remove_non_reserved_devs);
 
 /**
  * dfl_fpga_dev_feature_uinit - uinit for sub features of dfl feature device
@@ -537,7 +532,6 @@ void dfl_fpga_dev_feature_uinit(struct platform_device *pdev)
 	struct dfl_feature_platform_data *pdata = dev_get_platdata(&pdev->dev);
 	struct dfl_feature *feature;
 
-	printk("%s\n", __func__);
 	dfl_devs_remove(pdata);
 
 	dfl_fpga_dev_for_each_feature(pdata, feature) {
@@ -547,7 +541,6 @@ void dfl_fpga_dev_feature_uinit(struct platform_device *pdev)
 			feature->ops = NULL;
 		}
 	}
-	printk("%s done\n", __func__);
 }
 EXPORT_SYMBOL_GPL(dfl_fpga_dev_feature_uinit);
 
@@ -642,8 +635,6 @@ EXPORT_SYMBOL_GPL(dfl_fpga_dev_feature_init);
 static void dfl_chardev_uinit(void)
 {
 	int i;
-
-	printk("%s\n", __func__);
 
 	for (i = 0; i < DFL_FPGA_DEVT_MAX; i++)
 		if (MAJOR(dfl_chrdevs[i].devt)) {
@@ -1429,15 +1420,9 @@ static int remove_feature_dev(struct device *dev, void *data)
 	type = feature_dev_id_type(pdev);
 	id = pdev->id;
 
-	printk("%s, %s, %s\n", __func__, dfl_devs[type].name, pdev->name);
-
 	platform_device_unregister(pdev);
 
-	printk("%s, %s unregister done\n", __func__, dfl_devs[type].name);
-
 	dfl_id_free(type, id);
-
-	printk("%s, %s done\n", __func__, dfl_devs[type].name);
 
 	return 0;
 }
@@ -1521,8 +1506,7 @@ free_cdev_exit:
 }
 EXPORT_SYMBOL_GPL(dfl_fpga_feature_devs_enumerate);
 
-
-void dfl_fpga_remove_afus(struct dfl_fpga_cdev *cdev)
+void dfl_reload_remove_afus(struct dfl_fpga_cdev *cdev)
 {
 	struct dfl_feature_platform_data *pdata, *ptmp;
 
@@ -1532,17 +1516,15 @@ void dfl_fpga_remove_afus(struct dfl_fpga_cdev *cdev)
 		struct platform_device *port_dev = pdata->dev;
 		enum dfl_id_type type = feature_dev_id_type(port_dev);
 		int id = port_dev->id;
-		printk("%s: %s\n", __func__, port_dev->name);
 		
 		list_del(&pdata->node);
 		port_dev->dev.parent = NULL;
-
 		platform_device_unregister(port_dev);
 		dfl_id_free(type, id);
 	}
 	mutex_unlock(&cdev->lock);
 }
-EXPORT_SYMBOL_GPL(dfl_fpga_remove_afus);
+EXPORT_SYMBOL_GPL(dfl_reload_remove_afus);
 
 /**
  * dfl_fpga_feature_devs_remove - remove all feature devices
@@ -1562,14 +1544,11 @@ void dfl_fpga_feature_devs_remove(struct dfl_fpga_cdev *cdev)
 	list_for_each_entry_safe(pdata, ptmp, &cdev->port_dev_list, node) {
 		struct platform_device *port_dev = pdata->dev;
 
-		printk("%s: %s\n", __func__, port_dev->name);
-
 		/* remove released ports */
 		if (!device_is_registered(&port_dev->dev)) {
 			dfl_id_free(feature_dev_id_type(port_dev),
 				    port_dev->id);
 			platform_device_put(port_dev);
-			printk("%s: %s is not registered\n", __func__, port_dev->name);
 		}
 
 		list_del(&pdata->node);
@@ -1577,14 +1556,9 @@ void dfl_fpga_feature_devs_remove(struct dfl_fpga_cdev *cdev)
 	}
 	mutex_unlock(&cdev->lock);
 
-	printk("%s %d\n", __func__, __LINE__);
-
 	remove_feature_devs(cdev);
 
-	printk("%s %d\n", __func__, __LINE__);
-
 	fpga_region_unregister(cdev->region);
-	printk("%s %d\n", __func__, __LINE__);
 	devm_kfree(cdev->parent, cdev);
 }
 EXPORT_SYMBOL_GPL(dfl_fpga_feature_devs_remove);
@@ -1656,8 +1630,6 @@ int dfl_fpga_cdev_release_port(struct dfl_fpga_cdev *cdev, int port_id)
 	struct dfl_feature_platform_data *pdata;
 	struct platform_device *port_pdev;
 	int ret = -ENODEV;
-
-	printk("%s\n", __func__);
 
 	mutex_lock(&cdev->lock);
 	port_pdev = __dfl_fpga_cdev_find_port(cdev, &port_id,
@@ -1973,7 +1945,6 @@ EXPORT_SYMBOL_GPL(dfl_feature_ioctl_set_irq);
 
 static void __exit dfl_fpga_exit(void)
 {
-	printk("%s\n", __func__);
 	dfl_chardev_uinit();
 	dfl_ids_destroy();
 	bus_unregister(&dfl_bus_type);
