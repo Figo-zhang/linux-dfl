@@ -225,13 +225,17 @@ config FPGA_DFL_PCI
 
 	  To compile this as a module, choose M here.
 
-config FPGA_DFL_HSSI
-	tristate "FPGA DFL HSSI Driver"
-	depends on FPGA_DFL
+config FPGA_DFL_RELOAD
+	tristate "FPGA DFL image reload Driver"
+	depends on FPGA_DFL_PCI
 	help
-	  This is the HSSI Ethernet driver for the Intel Stratix 10 FPGA.
-	  This driver provides the ability to view and change some of the
-	  transceiver tuning parameters.
+	  Select this option to enable FPGA image reload trigger for PCIe-based
+	  Field-Programmable Gate Array (FPGA) solutions which implement
+	  the Device Feature List (DFL). This driver provides sysfs files for
+	  userspace applications to reload the FPGA/BMC images after burn the
+	  new images.
+
+	  To compile this as a module, choose M here.
 
 config FPGA_MGR_ZYNQMP_FPGA
 	tristate "Xilinx ZynqMP FPGA"
