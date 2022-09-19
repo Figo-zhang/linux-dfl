@@ -22,17 +22,9 @@ static int dfl_fpga_disable_pcie_link(struct pci_dev *root, bool disable)
 	if (!root)
 		return -EINVAL;
 
-	printk("%s=== %d\n", __func__, disable);
-
-	printk("%04x:%02x:%02x.%d", pci_domain_nr(root->bus),
-					root->bus->number, PCI_SLOT(root->devfn),
-					PCI_FUNC(root->devfn));
-
 	ret = pcie_capability_read_word(root, PCI_EXP_LNKCTL, &linkctl);
 	if (ret)
 		return -EINVAL;
-
-	printk("%s == linkctl 0x%x\n", __func__, linkctl);
 
 	if (disable) {
 		if (linkctl & PCI_EXP_LNKCTL_LD)
@@ -47,7 +39,6 @@ static int dfl_fpga_disable_pcie_link(struct pci_dev *root, bool disable)
 	ret = pcie_capability_write_word(root, PCI_EXP_LNKCTL, linkctl);
 	if (ret)
 		return ret;
-
 out:
 	return 0;
 }
@@ -56,23 +47,15 @@ static void dfl_fpga_reload_rescan_pci_bus(void)
 {
 	struct pci_bus *b = NULL;
 
-	printk("%s== rescan pci bus==\n", __func__);
-
 	pci_lock_rescan_remove();
 	while ((b = pci_find_next_bus(b)) != NULL)
 		pci_rescan_bus(b);
 	pci_unlock_rescan_remove();
 }
 
-static int dfl_fpga_reload_remove(struct pci_dev *root)
+static void dfl_fpga_reload_remove(struct pci_dev *root)
 {
-	printk("%s== remove FP0 and whole devices under root==\n", __func__);
-
-	/* remove FP0 PCI dev */
-	//pci_disable_pcie_error_reporting(pcidev);
 	pci_stop_and_remove_bus_device_locked(root);
-
-	return 0;
 }
 
 static ssize_t available_images_show(struct device *dev,
@@ -118,33 +101,47 @@ static ssize_t reload_store(struct device *dev,
 	mutex_lock(&dfl_reload->lock);
 
 	/* 1. remove all non-reserved devices */
-	if (dfl_reload->ops->prepare)
-		dfl_reload->ops->prepare(dfl_reload);
+	if (dfl_reload->ops->prepare) {
+		ret = dfl_reload->ops->prepare(dfl_reload);
+		if (ret) {
+			dev_err(&dfl_reload->dev, "prepare image reload failed\n");
+			goto out;
+		}
+	}
 
 	/* 2. trigger BMC reload */
-	if (trigger->ops->image_trigger)
+	if (trigger->ops->image_trigger) {
 		ret = trigger->ops->image_trigger(trigger, buf);
+		if (ret) {
+			dev_err(&dfl_reload->dev, "image trigger failed\n");
+			goto out;
+		}
+	}
 
 	/* 3. disable pci root hub link */
 	ret = dfl_fpga_disable_pcie_link(root, true);
-	if (ret)
-		return -EINVAL;
+	if (ret) {
+		dev_err(&dfl_reload->dev, "disable root pcie link failed\n");
+		goto out;
+	}
 
 	/* 4. remove reserved device and the whole PCI device under root devices*/
 	dfl_fpga_reload_remove(root);
 
 	/* 5. Wait for FPGA/BMC reload done. eg, 10s */
-	if (!ret)
-		mdelay(10*1000);
+	msleep(RELOAD_TIMEOUT_MS);
 
 	/* 6. enable pci root hub link */
 	ret = dfl_fpga_disable_pcie_link(root, false);
-	if (ret)
-		return -EINVAL;
+	if (ret) {
+		dev_err(&dfl_reload->dev, "enable root pcie link failed\n");
+		goto out;
+	}
 
 	/* 7. rescan the PCI bus*/
 	dfl_fpga_reload_rescan_pci_bus();
 
+out:
 	mutex_unlock(&dfl_reload->lock);
 
 	return ret ? : count;
@@ -161,8 +158,7 @@ static struct attribute *dfl_fpga_reload_attrs[] = {
 ATTRIBUTE_GROUPS(dfl_fpga_reload);
 
 struct dfl_fpga_trigger *
-dfl_fpga_reload_trigger_register(struct module *module,
-                const struct dfl_fpga_trigger_ops *ops, void *priv)
+dfl_fpga_reload_trigger_register(const struct dfl_fpga_trigger_ops *ops, void *priv)
 {
 	struct dfl_fpga_trigger *trigger = &dfl_reload->trigger;
 
@@ -170,11 +166,6 @@ dfl_fpga_reload_trigger_register(struct module *module,
 		dev_err(&dfl_reload->dev, "Attempt to register without all required ops\n");
 		return ERR_PTR(-EINVAL);
 	}
-
-	printk("%s =====\n", __func__);
-
-	//if (!try_module_get(module))
-	//	return ERR_PTR(-EFAULT);
 
 	trigger->priv = priv;
 	trigger->ops = ops;
@@ -185,28 +176,21 @@ EXPORT_SYMBOL_GPL(dfl_fpga_reload_trigger_register);
 
 void dfl_fpga_reload_trigger_unregister(struct dfl_fpga_trigger *trigger)
 {
-
 	trigger->priv = NULL;
 	trigger->ops = NULL;
-	//module_put(dfl_reload->module);
 }
 EXPORT_SYMBOL_GPL(dfl_fpga_reload_trigger_unregister);
 
 struct dfl_fpga_reload *
-dfl_fpga_reload_dev_register(struct module *module,
-                const struct dfl_fpga_reload_ops *ops, void *priv)
+dfl_fpga_reload_dev_register(const struct dfl_fpga_reload_ops *ops, void *priv)
 {
 	if (!ops){
 		dev_err(&dfl_reload->dev, "Attempt to register without all required ops\n");
 		return ERR_PTR(-EINVAL);
 	}
 
-	//if (!try_module_get(module))
-	//	return ERR_PTR(-EFAULT);
-
 	dfl_reload->priv = priv;
 	dfl_reload->ops = ops;
-	dfl_reload->module = module;
 
 	return dfl_reload;
 }
@@ -216,7 +200,6 @@ void dfl_fpga_reload_dev_unregister(struct dfl_fpga_reload *dfl_reload)
 {
 	dfl_reload->priv = NULL;
 	dfl_reload->ops = NULL;
-	//module_put(dfl_reload->module);
 }
 EXPORT_SYMBOL_GPL(dfl_fpga_reload_dev_unregister);
 
@@ -252,7 +235,6 @@ static int __init dfl_fpga_reload_init(void)
 	dfl_reload->dev.class = dfl_fpga_reload_class;
 	dfl_reload->dev.parent = NULL;
 
-
 	ret = dev_set_name(&dfl_reload->dev, "dfl_reload%d", dfl_reload->dev.id);
 	if (ret) {
 		dev_err(&dfl_reload->dev, "Failed to set device name: dfl_reload%d\n",
@@ -272,7 +254,6 @@ static int __init dfl_fpga_reload_init(void)
 
 error_device:
 	xa_erase(&dfl_fpga_reload_xa, dfl_reload->dev.id);
-
 error_kfree:
 	kfree(dfl_reload);
 free_class:

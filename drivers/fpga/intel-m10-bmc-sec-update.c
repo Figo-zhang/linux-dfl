@@ -691,7 +691,7 @@ static int m10bmc_sec_probe(struct platform_device *pdev)
 
 	sec->fwl = fwl;
 
-	sec->trigger = dfl_fpga_reload_trigger_register(THIS_MODULE, &trigger_ops, sec);
+	sec->trigger = dfl_fpga_reload_trigger_register(&trigger_ops, sec);
 	if (IS_ERR(sec->trigger)) {
 		dev_err(sec->dev, "register trigger failed\n");
 		kfree(sec->fw_name);

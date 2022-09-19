@@ -377,7 +377,7 @@ static int cci_enumerate_feature_devs(struct pci_dev *pcidev)
 		goto irq_free_exit;
 	}
 
-	cdev->dfl_reload = dfl_fpga_reload_dev_register(THIS_MODULE, &reload_ops, pcidev);
+	cdev->dfl_reload = dfl_fpga_reload_dev_register(&reload_ops, pcidev);
 	if (IS_ERR(cdev->dfl_reload)) {
 		dev_err(&pcidev->dev, "dfl fpga reload register failure\n");
 		ret = PTR_ERR(cdev->dfl_reload);
