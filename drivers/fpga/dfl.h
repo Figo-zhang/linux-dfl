@@ -27,7 +27,7 @@
 #include <linux/slab.h>
 #include <linux/uuid.h>
 #include <linux/fpga/fpga-region.h>
-#include "dfl-fpga-reload.h"
+#include "dfl-image-reload.h"
 
 /* maximum supported number of ports */
 #define MAX_DFL_FPGA_PORT_NUM 4
@@ -480,7 +480,7 @@ struct dfl_fpga_cdev {
 	struct mutex lock;
 	struct list_head port_dev_list;
 	int released_port_num;
-	struct dfl_fpga_reload *dfl_reload;
+	struct dfl_image_reload *dfl_reload;
 };
 
 struct dfl_fpga_cdev *

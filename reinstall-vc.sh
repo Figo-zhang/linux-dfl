@@ -32,7 +32,7 @@ rmmod ptp_dfl_tod
 rmmod dfl_n3000_nios
 
 rmmod dfl_pci
-rmmod dfl_fpga_reload
+rmmod dfl_image_reload
 
 # rmmod dfl_fme_region
 # rmmod dfl_fme
@@ -57,6 +57,6 @@ insmod drivers/fpga/dfl-afu.ko dyndbg=+p
 
 # insmod drivers/fpga/uio-dfl.ko dyndbg=+p
 
-insmod drivers/fpga/dfl-fpga-reload.ko dyndbg=+p
+insmod drivers/fpga/dfl-image-reload.ko dyndbg=+p
 insmod drivers/fpga/intel-m10-bmc-sec-update.ko dyndbg=+p
 insmod drivers/fpga/dfl-pci.ko dyndbg=+p
