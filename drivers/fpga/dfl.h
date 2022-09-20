@@ -171,6 +171,8 @@
 #define PORT_UINT_CAP_INT_NUM	GENMASK_ULL(11, 0)	/* Interrupts num */
 #define PORT_UINT_CAP_FST_VECT	GENMASK_ULL(23, 12)	/* First Vector */
 
+#define is_reload_reserved_dev(ddev) ((ddev)->feature_id == FME_FEATURE_ID_N3000_NIOS)
+
 /**
  * struct dfl_fpga_port_ops - port ops
  *
@@ -471,6 +473,7 @@ void dfl_fpga_enum_info_free(struct dfl_fpga_enum_info *info);
  * @lock: mutex lock to protect the port device list.
  * @port_dev_list: list of all port feature devices under this container device.
  * @released_port_num: released port number under this container device.
+ * @dfl_reload: dfl image reload.
  */
 struct dfl_fpga_cdev {
 	struct device *parent;
@@ -479,11 +482,14 @@ struct dfl_fpga_cdev {
 	struct mutex lock;
 	struct list_head port_dev_list;
 	int released_port_num;
+	struct dfl_image_reload *dfl_reload;
 };
 
 struct dfl_fpga_cdev *
 dfl_fpga_feature_devs_enumerate(struct dfl_fpga_enum_info *info);
 void dfl_fpga_feature_devs_remove(struct dfl_fpga_cdev *cdev);
+void dfl_reload_remove_afus(struct dfl_fpga_cdev *cdev);
+void dfl_reload_remove_non_reserved_devs(struct platform_device *pdev);
 
 /*
  * need to drop the device reference with put_device() after use port platform

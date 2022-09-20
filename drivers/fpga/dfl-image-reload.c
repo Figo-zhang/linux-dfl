@@ -21,6 +21,28 @@ static struct dfl_image_reload *dfl_reload;
 
 #define to_dfl_image_reload(d) container_of(d, struct dfl_image_reload, dev)
 
+struct dfl_image_reload *
+dfl_image_reload_dev_register(const struct dfl_image_reload_ops *ops, void *priv)
+{
+	if (!ops) {
+		dev_err(&dfl_reload->dev, "Attempt to register without all required ops\n");
+		return ERR_PTR(-EINVAL);
+	}
+
+	dfl_reload->priv = priv;
+	dfl_reload->ops = ops;
+
+	return dfl_reload;
+}
+EXPORT_SYMBOL_GPL(dfl_image_reload_dev_register);
+
+void dfl_image_reload_dev_unregister(struct dfl_image_reload *dfl_reload)
+{
+	dfl_reload->priv = NULL;
+	dfl_reload->ops = NULL;
+}
+EXPORT_SYMBOL_GPL(dfl_image_reload_dev_unregister);
+
 static void dfl_image_reload_dev_release(struct device *dev)
 {
 	struct dfl_image_reload *dfl_reload = to_dfl_image_reload(dev);
