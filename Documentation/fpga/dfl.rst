@@ -561,6 +561,34 @@ new DFL feature via UIO direct access, its feature id should be added to the
 driver's id_table.
 
 
+DFL image reload
+================
+To update the FPGA bitstream, we can reconfigure the PR region by Partial
+Reconfiguration technology, for example reconfigure the AFU. If we want to
+update the whole FPGA image, include the static regions and PR regions, we
+should burn the new image into the flash on the Card, and trigger the BMC
+to reload the new image into FPGA, we call this process as image reload.
+
+To implement the FPGA image reload, we introduce dfl-image-reload manager
+driver, which manager the whole process of the image reload. The dfl image
+reload manager will leverage the fpga manager framework to manager those
+reload devices. The fpga manager operations will provide image reload
+specific operations, like reload_prepare, which uses for prepare image
+reload for FP0 device, like remove non-reserved devices on PF0.
+
+During the image reload, we should remove all of PFs/VFs except FP0 and
+all of non-reserved devices of PF0 before trigger the reload. After the
+trigger, the FP0 include the reserved devices also will be removed. On
+the other hand, we should disable the link of the PCI root hub during the
+image reload.
+
+In general, the dfl-image-reload driver provides some sysfs files::
+
+	/sys/class/fpga_manager/<fpgaX>/dfl_reload/name
+	/sys/class/fpga_manager/<fpgaX>/dfl_reload/available_images
+        /sys/class/fpga_manager/<fpgaX>/dfl_reload/image_reload
+
+
 Open discussion
 ===============
 FME driver exports one ioctl (DFL_FPGA_FME_PORT_PR) for partial reconfiguration
