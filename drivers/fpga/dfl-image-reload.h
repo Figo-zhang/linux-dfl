@@ -59,6 +59,9 @@ struct dfl_image_reload {
 	struct dfl_image_trigger trigger;
 };
 
+/* Timeout (10s) for image reload */
+#define RELOAD_TIMEOUT_MS  (10 * 1000)
+
 struct dfl_image_reload *
 dfl_image_reload_dev_register(const struct dfl_image_reload_ops *ops, void *priv);
 void dfl_image_reload_dev_unregister(struct dfl_image_reload *dfl_reload);

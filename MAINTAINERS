@@ -8046,6 +8046,7 @@ INTEL DFL FPGA IMAGE RELOAD MANAGER
 M:	Tianfei Zhang <tianfei.zhang@intel.com>
 L:	linux-fpga@vger.kernel.org
 S:	Maintained
+F:	Documentation/ABI/testing/sysfs-driver-dfl-image-reload
 F:	drivers/fpga/dfl-image-reload.c
 F:	drivers/fpga/dfl-image-reload.h
 
