@@ -11,6 +11,28 @@
 #include <linux/device.h>
 
 struct dfl_image_reload;
+struct dfl_image_trigger;
+
+/**
+ * struct dfl_image_trigger_ops - image trigger specific operations
+ * @available_images: Required: available images for reload trigger
+ * @image_trigger: Required: trigger the image reload on BMC
+ */
+struct dfl_image_trigger_ops {
+	ssize_t (*available_images)(struct dfl_image_trigger *trigger, char *buf);
+	int (*image_trigger)(struct dfl_image_trigger *trigger, const char *buf);
+};
+
+/**
+ * struct dfl_image_trigger - represent a dfl image trigger instance
+ *
+ * @ops: ops of this dfl_image_trigger
+ * @priv: private data for dfl_image_trigger
+ */
+struct dfl_image_trigger {
+	const struct dfl_image_trigger_ops *ops;
+	void *priv;
+};
 
 /**
  * struct dfl_image_reload_ops - image reload specific operations
@@ -27,17 +49,22 @@ struct dfl_image_reload_ops {
  * @lock: mutex to protect reload data
  * @priv: private data for dfl_image_reload
  * @ops: ops of this dfl_image_reload
+ * @trigger: dfl_image_trigger instance
  */
 struct dfl_image_reload {
 	struct device dev;
 	struct mutex lock; /* protect data structure contents */
 	void *priv;
 	const struct dfl_image_reload_ops *ops;
+	struct dfl_image_trigger trigger;
 };
 
 struct dfl_image_reload *
 dfl_image_reload_dev_register(const struct dfl_image_reload_ops *ops, void *priv);
 void dfl_image_reload_dev_unregister(struct dfl_image_reload *dfl_reload);
+struct dfl_image_trigger *
+dfl_image_reload_trigger_register(const struct dfl_image_trigger_ops *ops, void *priv);
+void dfl_image_reload_trigger_unregister(struct dfl_image_trigger *trigger);
 
 #endif
 

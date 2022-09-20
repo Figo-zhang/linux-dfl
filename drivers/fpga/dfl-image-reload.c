@@ -21,6 +21,30 @@ static struct dfl_image_reload *dfl_reload;
 
 #define to_dfl_image_reload(d) container_of(d, struct dfl_image_reload, dev)
 
+struct dfl_image_trigger *
+dfl_image_reload_trigger_register(const struct dfl_image_trigger_ops *ops, void *priv)
+{
+	struct dfl_image_trigger *trigger = &dfl_reload->trigger;
+
+	if (!ops) {
+		dev_err(&dfl_reload->dev, "Attempt to register without all required ops\n");
+		return ERR_PTR(-EINVAL);
+	}
+
+	trigger->priv = priv;
+	trigger->ops = ops;
+
+	return trigger;
+}
+EXPORT_SYMBOL_GPL(dfl_image_reload_trigger_register);
+
+void dfl_image_reload_trigger_unregister(struct dfl_image_trigger *trigger)
+{
+	trigger->priv = NULL;
+	trigger->ops = NULL;
+}
+EXPORT_SYMBOL_GPL(dfl_image_reload_trigger_unregister);
+
 struct dfl_image_reload *
 dfl_image_reload_dev_register(const struct dfl_image_reload_ops *ops, void *priv)
 {
