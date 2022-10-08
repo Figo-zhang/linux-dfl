@@ -755,6 +755,10 @@ extern const struct attribute_group aspm_ctrl_attr_group;
 
 extern const struct attribute_group pci_dev_reset_method_attr_group;
 
+#ifdef CONFIG_FPGA_DFL_RELOAD
+extern const struct attribute_group pcie_fpga_reload_attr_group;
+#endif
+
 #ifdef CONFIG_X86_INTEL_MID
 bool pci_use_mid_pm(void);
 int mid_pci_set_power_state(struct pci_dev *pdev, pci_power_t state);

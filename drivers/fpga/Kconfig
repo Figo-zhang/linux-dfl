@@ -227,7 +227,7 @@ config FPGA_DFL_PCI
 
 config FPGA_DFL_RELOAD
 	tristate "FPGA DFL image reload Driver"
-	depends on FPGA_DFL_PCI
+	depends on PCIEPORTBUS
 	help
 	  Select this option to enable FPGA image reload trigger for PCIe-based
 	  Field-Programmable Gate Array (FPGA) solutions which implement

@@ -5,6 +5,7 @@
  * Copyright (C) 2019-2022 Intel Corporation. All rights reserved.
  *
  */
+#if 0
 #include <linux/dfl.h>
 #include <linux/pci.h>
 #include <linux/fpga-dfl.h>
@@ -295,3 +296,173 @@ module_exit(dfl_image_reload_exit);
 MODULE_DESCRIPTION("DFL FPGA Image Reload Driver");
 MODULE_AUTHOR("Intel Corporation");
 MODULE_LICENSE("GPL");
+#endif
+
+
+#define pr_fmt(fmt) "FPGA RELOAD: " fmt
+#define dev_fmt pr_fmt
+
+// RUSS: Which of headers are actually needed?
+
+#include <linux/bitops.h>
+#include <linux/cper.h>
+#include <linux/pci.h>
+#include <linux/pci-acpi.h>
+#include <linux/sched.h>
+#include <linux/kernel.h>
+#include <linux/errno.h>
+#include <linux/pm.h>
+#include <linux/init.h>
+#include <linux/interrupt.h>
+#include <linux/delay.h>
+#include <linux/kfifo.h>
+#include <linux/slab.h>
+#include <acpi/apei.h>
+#include <ras/ras_event.h>
+
+#include "../pci/pci.h"
+#include "../pci/pcie/portdrv.h"
+
+struct fpga_reload_rpc {
+/*	struct pci_dev *rpd;		/* Root Port device */
+	struct pci_dev *fpga_dev;	/* FPGA device */
+};
+
+void pci_fpga_reload_init(struct pci_dev *dev)
+{
+}
+
+void pci_fpga_reload_exit(struct pci_dev *dev)
+{
+}
+
+static ssize_t
+fpga_reload_show(struct device *dev, struct device_attribute *attr,
+		 char *buf)
+{
+	struct pci_dev *root = to_pci_dev(dev);
+	struct pcie_device *fpga_reload;
+	struct fpga_reload_rpc *rpc;
+	struct device *device;
+
+	pci_info(root, "%s: root-pcidev is: %p\n", __func__, root);
+
+	device = pcie_port_find_device(root, PCIE_PORT_SERVICE_FPGA_RELOAD);
+	if (!device) {
+		pci_err(root, "%s: unable to find reload_service\n", __func__);
+		return -ENODEV;
+	}
+
+	fpga_reload = to_pcie_device(device);
+	pci_info(root, "%s: FPGA Service pci_dev: %p\n", __func__, fpga_reload);
+
+	rpc = (struct fpga_reload_rpc *)get_service_data(fpga_reload);
+	pci_info(root, "%s: fpga_reload_rpc is: %p\n", __func__, rpc);
+	pci_info(root, "%s: fpga_dev is: %p\n", __func__, rpc->fpga_dev);
+
+	return sysfs_emit(buf, "fpga_reload_show has been called\n");
+}
+static DEVICE_ATTR_RO(fpga_reload);
+
+static struct attribute *pcie_fpga_reload_attrs[] = {
+	&dev_attr_fpga_reload.attr,
+	NULL
+};
+
+const struct attribute_group pcie_fpga_reload_attr_group = {
+	.attrs  = pcie_fpga_reload_attrs,
+};
+
+int pcie_fpga_reload_register(struct pci_dev *fpga_dev)
+{
+	struct pcie_device *fpga_reload;
+	struct fpga_reload_rpc *rpc;
+	struct device *device;
+	struct pci_dev *root;
+
+
+	if (!fpga_dev)
+		return -EINVAL;
+
+	root = pcie_find_root_port(fpga_dev);
+	if (!root) {
+		pci_err(root, "%s: unable to find root port\n", __func__);
+		return -ENODEV;
+	}
+
+	pci_info(root, "%s: fpga-pcidev is: %p\n", __func__, fpga_dev);
+	pci_info(root, "%s: root-pcidev is: %p\n", __func__, root);
+
+	device = pcie_port_find_device(root, PCIE_PORT_SERVICE_FPGA_RELOAD);
+	if (!device) {
+		pci_err(root, "%s: unable to find reload_service\n", __func__);
+		return -ENODEV;
+	}
+
+	fpga_reload = to_pcie_device(device);
+	pci_info(root, "%s: fpga_reload is: %p\n", __func__, fpga_reload);
+
+	rpc = (struct fpga_reload_rpc *)get_service_data(fpga_reload);
+	rpc->fpga_dev = fpga_dev;
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(pcie_fpga_reload_register);
+
+/**
+ * fpga_reload_remove - clean up resources
+ * @dev: pointer to the pcie_dev data structure
+ *
+ * Invoked when PCI Express bus unloads
+ */
+static void fpga_reload_remove(struct pcie_device *dev)
+{
+}
+
+/**
+ * fpga_reload_probe - initialize resources
+ * @dev: pointer to the pcie_dev data structure
+ *
+ * Invoked when PCI Express bus loads the FPGA Reload service driver.
+ */
+static int fpga_reload_probe(struct pcie_device *dev)
+{
+	struct device *device = &dev->device;
+	struct pci_dev *port = dev->port;
+	struct fpga_reload_rpc *rpc;
+
+	rpc = devm_kzalloc(device, sizeof(*rpc), GFP_KERNEL);
+	if (!rpc)
+		return -ENOMEM;
+
+	set_service_data(dev, rpc);
+
+	pci_info(port, "%s: fpga_reload_rpc is: %p\n", __func__, rpc);
+
+	/* Limit to Root Ports */
+	if (pci_pcie_type(port) != PCI_EXP_TYPE_ROOT_PORT)
+		return -ENODEV;
+
+	pci_info(port, "enabled\n");
+	return 0;
+}
+
+static struct pcie_port_service_driver fpga_reload_driver = {
+	.name		= "fpga_reload",
+	.port_type	= PCIE_ANY_PORT,
+	.service	= PCIE_PORT_SERVICE_FPGA_RELOAD,
+
+	.probe		= fpga_reload_probe,
+	.remove		= fpga_reload_remove,
+};
+
+/**
+ * pcie_fpga_reload_init - register FPGA reload root service driver
+ *
+ * Invoked when FPGA reload root service driver is loaded.
+ */
+int __init pcie_fpga_reload_init(void)
+{
+	return pcie_port_service_register(&fpga_reload_driver);
+}
+EXPORT_SYMBOL_GPL(pcie_fpga_reload_init);

@@ -237,6 +237,7 @@ static void __init pcie_init_services(void)
 	pcie_pme_init();
 	pcie_dpc_init();
 	pcie_hp_init();
+	pcie_fpga_reload_init();
 }
 
 static int __init pcie_portdrv_init(void)

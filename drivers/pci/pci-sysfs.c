@@ -1494,6 +1494,9 @@ const struct attribute_group *pci_dev_groups[] = {
 #ifdef CONFIG_ACPI
 	&pci_dev_acpi_attr_group,
 #endif
+#ifdef CONFIG_FPGA_DFL_RELOAD
+       &pcie_fpga_reload_attr_group,
+#endif 
 	NULL,
 };
 

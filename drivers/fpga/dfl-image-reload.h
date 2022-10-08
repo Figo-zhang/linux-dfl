@@ -68,6 +68,7 @@ void dfl_image_reload_dev_unregister(struct dfl_image_reload *dfl_reload);
 struct dfl_image_trigger *
 dfl_image_reload_trigger_register(const struct dfl_image_trigger_ops *ops, void *priv);
 void dfl_image_reload_trigger_unregister(struct dfl_image_trigger *trigger);
+int pcie_fpga_reload_register(struct pci_dev *fpga_dev);
 
 #endif
 
