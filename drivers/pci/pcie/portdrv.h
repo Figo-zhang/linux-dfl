@@ -22,8 +22,10 @@
 #define PCIE_PORT_SERVICE_DPC		(1 << PCIE_PORT_SERVICE_DPC_SHIFT)
 #define PCIE_PORT_SERVICE_BWNOTIF_SHIFT	4	/* Bandwidth notification */
 #define PCIE_PORT_SERVICE_BWNOTIF	(1 << PCIE_PORT_SERVICE_BWNOTIF_SHIFT)
+#define PCIE_PORT_SERVICE_FPGA_RELOAD_SHIFT 5	/* FPGA Reload */
+#define PCIE_PORT_SERVICE_FPGA_RELOAD	(1 << PCIE_PORT_SERVICE_FPGA_RELOAD_SHIFT)
 
-#define PCIE_PORT_DEVICE_MAXSERVICES   5
+#define PCIE_PORT_DEVICE_MAXSERVICES   6
 
 extern bool pcie_ports_dpc_native;
 
@@ -51,6 +53,12 @@ static inline int pcie_pme_init(void) { return 0; }
 int pcie_dpc_init(void);
 #else
 static inline int pcie_dpc_init(void) { return 0; }
+#endif
+
+#ifdef CONFIG_PCIE_FPGA_RELOAD
+int pcie_fpga_reload_init(void);
+#else
+static inline int pcie_fpga_reload_init(void) { return 0; }
 #endif
 
 /* Port Type */

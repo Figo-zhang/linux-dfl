@@ -258,6 +258,10 @@ static int get_port_device_capability(struct pci_dev *dev)
 			services |= PCIE_PORT_SERVICE_BWNOTIF;
 	}
 
+#ifdef CONFIG_PCIE_FPGA_RELOAD
+	services |= PCIE_PORT_SERVICE_FPGA_RELOAD;
+#endif
+
 	return services;
 }
 

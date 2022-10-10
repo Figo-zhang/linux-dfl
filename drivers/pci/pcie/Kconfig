@@ -45,6 +45,17 @@ config PCIEAER_INJECT
 	  gotten from:
 	     https://git.kernel.org/cgit/linux/kernel/git/gong.chen/aer-inject.git/
 
+config PCIE_FPGA_RELOAD
+	bool "PCI Express FPGA Reload support"
+	depends on PCIEPORTBUS && FPGA_DFL_PCI
+	help
+	  Enable PCIe based FPGA cards to be reloaded. These cards
+	  define the PCIe interface in the FPGA RTL logic, so special
+	  handling is required. This includes unloading the PCIe
+          drivers for the device, and temorarily disablng the PCIe
+          link at the root port, and then rescanning the PCIe slot
+          after allowing time for the FPGA image to load.
+
 #
 # PCI Express ECRC
 #

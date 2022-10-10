@@ -225,18 +225,6 @@ config FPGA_DFL_PCI
 
 	  To compile this as a module, choose M here.
 
-config FPGA_DFL_RELOAD
-	tristate "FPGA DFL image reload Driver"
-	depends on FPGA_DFL_PCI
-	help
-	  Select this option to enable FPGA image reload trigger for PCIe-based
-	  Field-Programmable Gate Array (FPGA) solutions which implement
-	  the Device Feature List (DFL). This driver provides sysfs files for
-	  userspace applications to reload the FPGA/BMC images after burn the
-	  new images.
-
-	  To compile this as a module, choose M here.
-
 config FPGA_MGR_ZYNQMP_FPGA
 	tristate "Xilinx ZynqMP FPGA"
 	depends on ZYNQMP_FIRMWARE || (!ZYNQMP_FIRMWARE && COMPILE_TEST)

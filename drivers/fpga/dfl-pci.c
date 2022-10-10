@@ -24,7 +24,7 @@
 #include <linux/aer.h>
 
 #include "dfl.h"
-#include "dfl-image-reload.h"
+#include <linux/fpga/dfl-image-reload.h>
 
 #define DRV_VERSION	"0.8"
 #define DRV_NAME	"dfl-pci"
@@ -357,12 +357,23 @@ static int cci_enumerate_feature_devs(struct pci_dev *pcidev)
 		goto irq_free_exit;
 	}
 
-	cdev->dfl_reload = dfl_image_reload_dev_register(&reload_ops, pcidev);
+	cdev->dfl_reload = pcie_fpga_reload_register(pcidev, &reload_ops);
 	if (IS_ERR(cdev->dfl_reload)) {
 		dev_err(&pcidev->dev, "dfl image reload register failure\n");
 		ret = PTR_ERR(cdev->dfl_reload);
 		goto free_cdev;
 	}
+
+#if 0
+	struct pci_dev *root;
+	ret = pcie_fpga_reload_register(pcidev);
+	if (!ret) {
+		root = pcie_find_root_port(pcidev);
+		dev_info(&pcidev->dev, "%s: fpga-pcidev is: %p\n", __func__, pcidev);
+		dev_info(&pcidev->dev, "%s: root-pcidev is: %p\n", __func__, root);
+		goto free_cdev;
+	}
+#endif
 
 	drvdata->cdev = cdev;
 
@@ -463,7 +474,7 @@ static void cci_pci_remove(struct pci_dev *pcidev)
 	if (dev_is_pf(&pcidev->dev))
 		cci_pci_sriov_configure(pcidev, 0);
 
-	dfl_image_reload_dev_unregister(cdev->dfl_reload);
+	pcie_fpga_reload_unregister(cdev->dfl_reload);
 
 	cci_remove_feature_devs(pcidev);
 	pci_disable_pcie_error_reporting(pcidev);

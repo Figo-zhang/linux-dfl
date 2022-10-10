@@ -829,6 +829,7 @@ static int m10bmc_sec_probe(struct platform_device *pdev)
 
 	sec->fwl = fwl;
 
+#if 0
 	sec->trigger = dfl_image_reload_trigger_register(&trigger_ops, sec);
 	if (IS_ERR(sec->trigger)) {
 		dev_err(sec->dev, "register trigger failed\n");
@@ -837,6 +838,7 @@ static int m10bmc_sec_probe(struct platform_device *pdev)
 		firmware_upload_unregister(sec->fwl);
 		return PTR_ERR(sec->trigger);
 	}
+#endif
 	return 0;
 }
 
@@ -844,7 +846,7 @@ static int m10bmc_sec_remove(struct platform_device *pdev)
 {
 	struct m10bmc_sec *sec = dev_get_drvdata(&pdev->dev);
 
-	dfl_image_reload_trigger_unregister(sec->trigger);
+//	dfl_image_reload_trigger_unregister(sec->trigger);
 	firmware_upload_unregister(sec->fwl);
 	kfree(sec->fw_name);
 	xa_erase(&fw_upload_xa, sec->fw_name_id);
