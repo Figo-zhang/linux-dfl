@@ -829,7 +829,7 @@ static int m10bmc_sec_probe(struct platform_device *pdev)
 
 	sec->fwl = fwl;
 
-	sec->trigger = dfl_image_reload_trigger_register(&trigger_ops, sec);
+	sec->trigger = dfl_image_reload_trigger_register(&trigger_ops, sec->dev, sec);
 	if (IS_ERR(sec->trigger)) {
 		dev_err(sec->dev, "register trigger failed\n");
 		kfree(sec->fw_name);
@@ -837,6 +837,7 @@ static int m10bmc_sec_probe(struct platform_device *pdev)
 		firmware_upload_unregister(sec->fwl);
 		return PTR_ERR(sec->trigger);
 	}
+
 	return 0;
 }
 

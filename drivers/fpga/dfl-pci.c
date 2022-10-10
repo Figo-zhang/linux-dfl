@@ -315,6 +315,7 @@ static int cci_enumerate_feature_devs(struct pci_dev *pcidev)
 	struct cci_drvdata *drvdata = pci_get_drvdata(pcidev);
 	struct dfl_fpga_enum_info *info;
 	struct dfl_fpga_cdev *cdev;
+	struct dfl_image_reload *dfl_reload;
 	int nvec, ret = 0;
 	int *irq_table;
 
@@ -349,26 +350,27 @@ static int cci_enumerate_feature_devs(struct pci_dev *pcidev)
 	if (ret)
 		goto irq_free_exit;
 
+	dfl_reload = dfl_image_reload_dev_register(dev_name(&pcidev->dev), &reload_ops, pcidev);
+	if (IS_ERR(dfl_reload)) {
+		dev_err(&pcidev->dev, "dfl image reload register failure\n");
+		ret = PTR_ERR(dfl_reload);
+		goto irq_free_exit;
+	}
+
 	/* start enumeration with prepared enumeration information */
 	cdev = dfl_fpga_feature_devs_enumerate(info);
 	if (IS_ERR(cdev)) {
 		dev_err(&pcidev->dev, "Enumeration failure\n");
 		ret = PTR_ERR(cdev);
-		goto irq_free_exit;
+		goto free_reload;
 	}
 
-	cdev->dfl_reload = dfl_image_reload_dev_register(&reload_ops, pcidev);
-	if (IS_ERR(cdev->dfl_reload)) {
-		dev_err(&pcidev->dev, "dfl image reload register failure\n");
-		ret = PTR_ERR(cdev->dfl_reload);
-		goto free_cdev;
-	}
-
+	cdev->dfl_reload = dfl_reload;
 	drvdata->cdev = cdev;
 
-free_cdev:
-	if (ret)
-		dfl_fpga_feature_devs_remove(cdev);
+free_reload:
+	if (IS_ERR(dfl_reload))
+		dfl_image_reload_dev_unregister(dfl_reload);
 irq_free_exit:
 	if (ret)
 		cci_pci_free_irq(pcidev);
