@@ -27,6 +27,171 @@ static struct dfl_image_reload_priv *dfl_priv;
 #define to_dfl_image_reload(d) container_of(d, struct dfl_image_reload, dev)
 #define to_dfl_trigger_reload(d) container_of(d, struct dfl_image_reload, trigger)
 
+static int dfl_reload_disable_pcie_link(struct pci_dev *root, bool disable)
+{
+	u16 linkctl;
+	int ret;
+
+	if (!root)
+		return -EINVAL;
+
+	ret = pcie_capability_read_word(root, PCI_EXP_LNKCTL, &linkctl);
+	if (ret)
+		return -EINVAL;
+
+	if (disable) {
+		if (linkctl & PCI_EXP_LNKCTL_LD)
+			goto out;
+		linkctl |= PCI_EXP_LNKCTL_LD;
+	} else {
+		if (!(linkctl & PCI_EXP_LNKCTL_LD))
+			goto out;
+		linkctl &= ~PCI_EXP_LNKCTL_LD;
+	}
+
+	ret = pcie_capability_write_word(root, PCI_EXP_LNKCTL, linkctl);
+	if (ret)
+		return ret;
+out:
+	return 0;
+}
+
+static void dfl_reload_rescan_pci_bus(void)
+{
+	struct pci_bus *b = NULL;
+
+	pci_lock_rescan_remove();
+	while ((b = pci_find_next_bus(b)) != NULL)
+		pci_rescan_bus(b);
+	pci_unlock_rescan_remove();
+}
+
+static ssize_t available_images_show(struct device *dev,
+				     struct device_attribute *attr, char *buf)
+{
+	struct dfl_image_reload *reload = to_dfl_image_reload(dev);
+	struct dfl_image_trigger *trigger = &reload->trigger;
+	ssize_t count = 0;
+
+	if (!reload->is_registered || !trigger->is_registered)
+		return -EINVAL;
+
+	if (!trigger->ops->available_images)
+		return -EINVAL;
+
+	mutex_lock(&dfl_priv->lock);
+	count = trigger->ops->available_images(trigger, buf);
+	mutex_unlock(&dfl_priv->lock);
+
+	return count;
+}
+
+static void dfl_reload_remove_sibling_pci_dev(struct pci_dev *pcidev)
+{
+	struct pci_bus *bus = pcidev->bus;
+	struct pci_dev *sibling, *tmp;
+
+	if (bus) {
+		list_for_each_entry_safe_reverse(sibling, tmp,
+						 &bus->devices, bus_list)
+			if (sibling != pcidev)
+				pci_stop_and_remove_bus_device_locked(sibling);
+	}
+}
+
+static ssize_t image_reload_store(struct device *dev,
+				  struct device_attribute *attr,
+				  const char *buf, size_t count)
+{
+	struct dfl_image_reload *reload = to_dfl_image_reload(dev);
+	struct pci_dev *pcidev, *root;
+	struct dfl_image_trigger *trigger = &reload->trigger;
+	int ret = -EINVAL;
+
+	if (!reload->is_registered || !trigger->is_registered)
+		return -EINVAL;
+
+	if (!trigger->ops->image_trigger)
+		return -EINVAL;
+
+	pcidev = reload->priv;
+	root = pcie_find_root_port(pcidev);
+	if (!root)
+		return -EINVAL;
+
+	mutex_lock(&dfl_priv->lock);
+
+	/* 1. remove all PFs and VFs except the PF0*/
+	dfl_reload_remove_sibling_pci_dev(pcidev);
+
+	/* 2. remove all non-reserved devices */
+	if (reload->ops->prepare) {
+		ret = reload->ops->prepare(reload);
+		if (ret) {
+			dev_err(&reload->dev, "prepare image reload failed\n");
+			goto out;
+		}
+	}
+
+	/* 3. trigger image reload */
+	ret = trigger->ops->image_trigger(trigger, buf);
+	if (ret) {
+		dev_err(&reload->dev, "image trigger failed\n");
+		goto out;
+	}
+
+	/* 4. disable pci root hub link */
+	ret = dfl_reload_disable_pcie_link(root, true);
+	if (ret) {
+		dev_err(&reload->dev, "disable root pcie link failed\n");
+		goto out;
+	}
+
+	/* 5. remove reserved devices under FP0 and PCI devices under root hub*/
+	pci_stop_and_remove_bus_device_locked(root);
+
+	/* 6. Wait for FPGA/BMC reload done. eg, 10s */
+	msleep(RELOAD_TIMEOUT_MS);
+
+	/* 7. enable pci root hub link */
+	ret = dfl_reload_disable_pcie_link(root, false);
+	if (ret) {
+		dev_err(&reload->dev, "enable root pcie link failed\n");
+		goto out;
+	}
+
+out:
+	mutex_unlock(&dfl_priv->lock);
+
+	/* 8. rescan the PCI bus*/
+	dfl_reload_rescan_pci_bus();
+
+	return ret ? : count;
+}
+
+static ssize_t name_show(struct device *dev,
+			 struct device_attribute *attr, char *buf)
+{
+	struct dfl_image_reload *reload = to_dfl_image_reload(dev);
+
+	if (!reload->is_registered)
+		return -EINVAL;
+
+	return sprintf(buf, "%s\n", reload->name);
+}
+
+static DEVICE_ATTR_RO(name);
+static DEVICE_ATTR_RO(available_images);
+static DEVICE_ATTR_WO(image_reload);
+
+static struct attribute *dfl_image_reload_attrs[] = {
+	&dev_attr_name.attr,
+	&dev_attr_available_images.attr,
+	&dev_attr_image_reload.attr,
+	NULL,
+};
+ATTRIBUTE_GROUPS(dfl_image_reload);
+
 static bool dfl_match_trigger_dev(struct dfl_image_reload *reload, struct device *parent)
 {
 	struct pci_dev *pcidev = reload->priv;
@@ -287,6 +452,7 @@ static int __init dfl_image_reload_init(void)
 		goto free;
 	}
 
+	priv->reload_class->dev_groups = dfl_image_reload_groups;
 	priv->reload_class->dev_release = dfl_image_reload_dev_release;
 
 	mutex_init(&priv->lock);

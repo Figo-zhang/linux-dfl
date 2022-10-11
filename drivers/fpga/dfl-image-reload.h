@@ -67,6 +67,9 @@ struct dfl_image_reload {
 	struct list_head node;
 };
 
+/* Timeout (10s) for image reload */
+#define RELOAD_TIMEOUT_MS  (10 * 1000)
+
 struct dfl_image_reload *
 dfl_image_reload_dev_register(const char *name,
 			      const struct dfl_image_reload_ops *ops, void *priv);
