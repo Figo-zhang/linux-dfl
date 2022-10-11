@@ -13,18 +13,13 @@
 #include "dfl.h"
 #include "dfl-image-reload.h"
 
-#define DFL_IMAGE_RELOAD_XA_LIMIT  XA_LIMIT(0, INT_MAX)
-static DEFINE_XARRAY_ALLOC(dfl_image_reload_xa);
-
 struct dfl_image_reload_priv {
 	struct mutex lock; /* protect data structure contents */
 	struct list_head dev_list;
-	struct class *reload_class;
 };
 
 static struct dfl_image_reload_priv *dfl_priv;
 
-#define to_dfl_image_reload(d) container_of(d, struct dfl_image_reload, dev)
 #define to_dfl_trigger_reload(d) container_of(d, struct dfl_image_reload, trigger)
 
 static int dfl_reload_disable_pcie_link(struct pci_dev *root, bool disable)
@@ -69,7 +64,8 @@ static void dfl_reload_rescan_pci_bus(void)
 static ssize_t available_images_show(struct device *dev,
 				     struct device_attribute *attr, char *buf)
 {
-	struct dfl_image_reload *reload = to_dfl_image_reload(dev);
+	struct fpga_manager *mgr = to_fpga_manager(dev);
+	struct dfl_image_reload *reload = mgr->priv;
 	struct dfl_image_trigger *trigger = &reload->trigger;
 	ssize_t count = 0;
 
@@ -103,9 +99,10 @@ static ssize_t image_reload_store(struct device *dev,
 				  struct device_attribute *attr,
 				  const char *buf, size_t count)
 {
-	struct dfl_image_reload *reload = to_dfl_image_reload(dev);
-	struct pci_dev *pcidev, *root;
+	struct fpga_manager *mgr = to_fpga_manager(dev);
+	struct dfl_image_reload *reload = mgr->priv;
 	struct dfl_image_trigger *trigger = &reload->trigger;
+	struct pci_dev *pcidev, *root;
 	int ret = -EINVAL;
 
 	if (!reload->is_registered || !trigger->is_registered)
@@ -115,6 +112,9 @@ static ssize_t image_reload_store(struct device *dev,
 		return -EINVAL;
 
 	pcidev = reload->priv;
+	if (!pcidev)
+		return -EINVAL;
+
 	root = pcie_find_root_port(pcidev);
 	if (!root)
 		return -EINVAL;
@@ -125,10 +125,10 @@ static ssize_t image_reload_store(struct device *dev,
 	dfl_reload_remove_sibling_pci_dev(pcidev);
 
 	/* 2. remove all non-reserved devices */
-	if (reload->ops->prepare) {
-		ret = reload->ops->prepare(reload);
+	if (mgr->mops->reload_prepare) {
+		ret = mgr->mops->reload_prepare(mgr);
 		if (ret) {
-			dev_err(&reload->dev, "prepare image reload failed\n");
+			dev_err(&mgr->dev, "prepare image reload failed\n");
 			goto out;
 		}
 	}
@@ -136,14 +136,14 @@ static ssize_t image_reload_store(struct device *dev,
 	/* 3. trigger image reload */
 	ret = trigger->ops->image_trigger(trigger, buf);
 	if (ret) {
-		dev_err(&reload->dev, "image trigger failed\n");
+		dev_err(&mgr->dev, "image trigger failed\n");
 		goto out;
 	}
 
 	/* 4. disable pci root hub link */
 	ret = dfl_reload_disable_pcie_link(root, true);
 	if (ret) {
-		dev_err(&reload->dev, "disable root pcie link failed\n");
+		dev_err(&mgr->dev, "disable root pcie link failed\n");
 		goto out;
 	}
 
@@ -156,7 +156,7 @@ static ssize_t image_reload_store(struct device *dev,
 	/* 7. enable pci root hub link */
 	ret = dfl_reload_disable_pcie_link(root, false);
 	if (ret) {
-		dev_err(&reload->dev, "enable root pcie link failed\n");
+		dev_err(&mgr->dev, "enable root pcie link failed\n");
 		goto out;
 	}
 
@@ -172,12 +172,13 @@ out:
 static ssize_t name_show(struct device *dev,
 			 struct device_attribute *attr, char *buf)
 {
-	struct dfl_image_reload *reload = to_dfl_image_reload(dev);
+	struct fpga_manager *mgr = to_fpga_manager(dev);
+	struct dfl_image_reload *reload = mgr->priv;
 
 	if (!reload->is_registered)
 		return -EINVAL;
 
-	return sprintf(buf, "%s\n", reload->name);
+	return sprintf(buf, "%s\n", mgr->name);
 }
 
 static DEVICE_ATTR_RO(name);
@@ -190,7 +191,17 @@ static struct attribute *dfl_image_reload_attrs[] = {
 	&dev_attr_image_reload.attr,
 	NULL,
 };
-ATTRIBUTE_GROUPS(dfl_image_reload);
+
+static const struct attribute_group dfl_reload_attr_group = {
+	.name = "dfl_reload",
+	.attrs = dfl_image_reload_attrs,
+};
+
+const struct attribute_group *dfl_reload_attr_groups[] = {
+	&dfl_reload_attr_group,
+	NULL,
+};
+EXPORT_SYMBOL_GPL(dfl_reload_attr_groups);
 
 static bool dfl_match_trigger_dev(struct dfl_image_reload *reload, struct device *parent)
 {
@@ -198,8 +209,9 @@ static bool dfl_match_trigger_dev(struct dfl_image_reload *reload, struct device
 	struct device *reload_dev = &pcidev->dev;
 
 	/*
-	 * Trigger dev is child dev of reload dev, so check
-	 * the parent device of trigger dev recursively
+	 * Trigger device (security dev) is a subordinate device under
+	 * reload device (pci dev), so check if the parent device of
+	 * trigger device recursively
 	 */
 	while (parent) {
 		if (parent == reload_dev)
@@ -218,8 +230,7 @@ dfl_find_trigger(struct device *parent)
 	mutex_lock(&dfl_priv->lock);
 
 	list_for_each_entry_safe(reload, tmp, &dfl_priv->dev_list, node) {
-		if (!device_is_registered(&reload->dev) ||
-		    !reload->is_registered)
+		if (!reload->is_registered)
 			continue;
 		if (dfl_match_trigger_dev(reload, parent)) {
 			mutex_unlock(&dfl_priv->lock);
@@ -262,8 +273,6 @@ void dfl_image_reload_trigger_unregister(struct dfl_image_trigger *trigger)
 	struct dfl_image_reload *reload = to_dfl_trigger_reload(trigger);
 
 	mutex_lock(&reload->lock);
-	trigger->priv = NULL;
-	trigger->ops = NULL;
 	trigger->is_registered = false;
 	mutex_unlock(&reload->lock);
 }
@@ -272,13 +281,13 @@ EXPORT_SYMBOL_GPL(dfl_image_reload_trigger_unregister);
 static void dfl_add_reload_dev(struct dfl_image_reload_priv *priv, struct dfl_image_reload *reload)
 {
 	mutex_lock(&priv->lock);
-	get_device(&reload->dev);
 	list_add(&reload->node, &priv->dev_list);
 	mutex_unlock(&priv->lock);
 }
 
 static struct dfl_image_reload *
-dfl_create_reload_dev(struct device *parent)
+dfl_create_new_reload_dev(struct device *parent, const char *name,
+			  const struct fpga_manager_ops *ops, void *priv)
 {
 	static struct dfl_image_reload *reload;
 	int ret;
@@ -287,52 +296,37 @@ dfl_create_reload_dev(struct device *parent)
 	if (!reload)
 		return ERR_PTR(-ENOMEM);
 
-	ret = xa_alloc(&dfl_image_reload_xa, &reload->dev.id,
-		       reload, DFL_IMAGE_RELOAD_XA_LIMIT, GFP_KERNEL);
-	if (ret)
+	mutex_init(&reload->lock);
+
+	reload->mgr = fpga_mgr_register(parent, name, ops, reload);
+	if (!reload->mgr)
 		goto error_kfree;
 
-	reload->dev.class = dfl_priv->reload_class;
-	reload->dev.parent = parent;
+	mutex_lock(&reload->lock);
+	reload->priv = priv;
+	reload->is_registered = true;
+	mutex_unlock(&reload->lock);
 
-	ret = dev_set_name(&reload->dev, "dfl_reload%d", reload->dev.id);
-	if (ret) {
-		dev_err(&reload->dev, "Failed to set device name: dfl_reload%d\n",
-			reload->dev.id);
-		goto error_device;
-	}
-
-	ret = device_register(&reload->dev);
-	if (ret) {
-		put_device(&reload->dev);
-		goto error_device;
-	}
-
-	mutex_init(&reload->lock);
 	dfl_add_reload_dev(dfl_priv, reload);
 
 	return reload;
 
-error_device:
-	xa_erase(&dfl_image_reload_xa, reload->dev.id);
 error_kfree:
 	kfree(reload);
 	return ERR_PTR(ret);
 }
 
 static struct dfl_image_reload *
-dfl_find_exist_reload(struct pci_dev *pcidev, const struct dfl_image_reload_ops *ops)
+dfl_find_exist_reload(struct pci_dev *pcidev, const struct fpga_manager_ops *ops)
 {
 	struct dfl_image_reload *reload, *tmp;
 
 	mutex_lock(&dfl_priv->lock);
 
 	list_for_each_entry_safe(reload, tmp, &dfl_priv->dev_list, node) {
-		if (!device_is_registered(&reload->dev))
-			continue;
 		if (!reload->is_registered)
 			continue;
-		if (reload->priv == pcidev && reload->ops == ops) {
+		if (reload->mgr->priv == pcidev && reload->mgr->mops == ops) {
 			mutex_unlock(&dfl_priv->lock);
 			return reload;
 		}
@@ -350,8 +344,6 @@ static struct dfl_image_reload *dfl_find_free_reload(void)
 	mutex_lock(&dfl_priv->lock);
 
 	list_for_each_entry_safe(reload, tmp, &dfl_priv->dev_list, node) {
-		if (!device_is_registered(&reload->dev))
-			continue;
 		if (!reload->is_registered) {
 			mutex_unlock(&dfl_priv->lock);
 			return reload;
@@ -366,16 +358,19 @@ static struct dfl_image_reload *dfl_find_free_reload(void)
 static void dfl_image_reload_remove_devs(void)
 {
 	struct dfl_image_reload *reload, *tmp;
+	struct fpga_manager *mgr;
 
 	mutex_lock(&dfl_priv->lock);
 
 	list_for_each_entry_safe(reload, tmp, &dfl_priv->dev_list, node) {
+		mgr = reload->mgr;
+
+		/*
+		 * mgr->mops have been released because the dfl-pci module
+		 * remove firstly
+		 */
+		device_unregister(&mgr->dev);
 		list_del(&reload->node);
-		put_device(&reload->dev);
-
-		if (device_is_registered(&reload->dev))
-			device_unregister(&reload->dev);
-
 		kfree(reload);
 	}
 
@@ -383,7 +378,7 @@ static void dfl_image_reload_remove_devs(void)
 }
 
 struct dfl_image_reload *
-dfl_image_reload_dev_register(const char *name, const struct dfl_image_reload_ops *ops, void *priv)
+dfl_image_reload_dev_register(const char *name, const struct fpga_manager_ops *ops, void *priv)
 {
 	struct pci_dev *pcidev, *root;
 	struct dfl_image_reload *reload;
@@ -397,21 +392,26 @@ dfl_image_reload_dev_register(const char *name, const struct dfl_image_reload_op
 	if (!root)
 		return ERR_PTR(-EINVAL);
 
+	/* find exist matched reload dev */
 	reload = dfl_find_exist_reload(pcidev, ops);
 	if (reload)
 		return reload;
 
+	/* can it reuse the free reload dev? */
 	reload = dfl_find_free_reload();
-	if (!reload) {
-		reload = dfl_create_reload_dev(root->dev.parent);
-		if (!reload)
-			return ERR_PTR(-ENODEV);
-	}
+	if (reload)
+		goto reuse;
 
+	/* create new reload dev */
+	reload = dfl_create_new_reload_dev(root->dev.parent, name, ops, priv);
+	if (reload)
+		return reload;
+
+reuse:
 	mutex_lock(&reload->lock);
+	reload->mgr->mops = ops;
+	reload->mgr->name = name;
 	reload->priv = priv;
-	reload->ops = ops;
-	reload->name = name;
 	reload->is_registered = true;
 	mutex_unlock(&reload->lock);
 
@@ -422,55 +422,29 @@ EXPORT_SYMBOL_GPL(dfl_image_reload_dev_register);
 void dfl_image_reload_dev_unregister(struct dfl_image_reload *reload)
 {
 	mutex_lock(&reload->lock);
-	reload->priv = NULL;
-	reload->ops = NULL;
-	reload->name = NULL;
 	reload->is_registered = false;
 	mutex_unlock(&reload->lock);
 }
 EXPORT_SYMBOL_GPL(dfl_image_reload_dev_unregister);
 
-static void dfl_image_reload_dev_release(struct device *dev)
-{
-	struct dfl_image_reload *reload = to_dfl_image_reload(dev);
-
-	xa_erase(&dfl_image_reload_xa, reload->dev.id);
-}
-
 static int __init dfl_image_reload_init(void)
 {
 	struct dfl_image_reload_priv *priv;
-	int ret;
 
 	priv = kzalloc(sizeof(*priv), GFP_KERNEL);
 	if (!priv)
 		return -ENOMEM;
-
-	priv->reload_class = class_create(THIS_MODULE, "dfl_image_reload");
-	if (!priv->reload_class) {
-		ret = -EINVAL;
-		goto free;
-	}
-
-	priv->reload_class->dev_groups = dfl_image_reload_groups;
-	priv->reload_class->dev_release = dfl_image_reload_dev_release;
 
 	mutex_init(&priv->lock);
 	INIT_LIST_HEAD(&priv->dev_list);
 	dfl_priv = priv;
 
 	return 0;
-
-free:
-	kfree(priv);
-	return ret;
 }
 
 static void __exit dfl_image_reload_exit(void)
 {
 	dfl_image_reload_remove_devs();
-	class_destroy(dfl_priv->reload_class);
-
 	kfree(dfl_priv);
 }
 

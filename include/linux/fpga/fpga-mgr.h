@@ -161,6 +161,7 @@ struct fpga_manager_info {
  * @write_sg: write the scatter list of configuration data to the FPGA
  * @write_complete: set FPGA to operating state after writing is done
  * @fpga_remove: optional: Set FPGA into a specific state during driver remove
+ * @reload_prepare: optional: prepare the FPGA before trigger the image reload
  * @groups: optional attribute groups.
  *
  * fpga_manager_ops are the low level functions implemented by a specific
@@ -183,6 +184,7 @@ struct fpga_manager_ops {
 	int (*write_complete)(struct fpga_manager *mgr,
 			      struct fpga_image_info *info);
 	void (*fpga_remove)(struct fpga_manager *mgr);
+	int (*reload_prepare)(struct fpga_manager *mgr);
 	const struct attribute_group **groups;
 };
 
