@@ -25,6 +25,84 @@ struct dfl_image_reload_priv {
 static struct dfl_image_reload_priv *dfl_priv;
 
 #define to_dfl_image_reload(d) container_of(d, struct dfl_image_reload, dev)
+#define to_dfl_trigger_reload(d) container_of(d, struct dfl_image_reload, trigger)
+
+static bool dfl_match_trigger_dev(struct dfl_image_reload *reload, struct device *parent)
+{
+	struct pci_dev *pcidev = reload->priv;
+	struct device *reload_dev = &pcidev->dev;
+
+	/*
+	 * Trigger dev is child dev of reload dev, so check
+	 * the parent device of trigger dev recursively
+	 */
+	while (parent) {
+		if (parent == reload_dev)
+			return true;
+		parent = parent->parent;
+	}
+
+	return false;
+}
+
+static struct dfl_image_trigger *
+dfl_find_trigger(struct device *parent)
+{
+	struct dfl_image_reload *reload, *tmp;
+
+	mutex_lock(&dfl_priv->lock);
+
+	list_for_each_entry_safe(reload, tmp, &dfl_priv->dev_list, node) {
+		if (!device_is_registered(&reload->dev) ||
+		    !reload->is_registered)
+			continue;
+		if (dfl_match_trigger_dev(reload, parent)) {
+			mutex_unlock(&dfl_priv->lock);
+			return &reload->trigger;
+		}
+	}
+	mutex_unlock(&dfl_priv->lock);
+
+	return NULL;
+}
+
+struct dfl_image_trigger *
+dfl_image_reload_trigger_register(const struct dfl_image_trigger_ops *ops,
+				  struct device *parent, void *priv)
+{
+	struct dfl_image_reload *reload;
+	struct dfl_image_trigger *trigger;
+
+	if (!ops)
+		return ERR_PTR(-EINVAL);
+
+	trigger = dfl_find_trigger(parent);
+	if (!trigger)
+		return ERR_PTR(-EINVAL);
+
+	reload = to_dfl_trigger_reload(trigger);
+
+	mutex_lock(&reload->lock);
+	trigger->priv = priv;
+	trigger->ops = ops;
+	trigger->is_registered = true;
+	mutex_unlock(&reload->lock);
+
+	return trigger;
+}
+EXPORT_SYMBOL_GPL(dfl_image_reload_trigger_register);
+
+void dfl_image_reload_trigger_unregister(struct dfl_image_trigger *trigger)
+{
+	struct dfl_image_reload *reload = to_dfl_trigger_reload(trigger);
+
+	mutex_lock(&reload->lock);
+	trigger->priv = NULL;
+	trigger->ops = NULL;
+	trigger->is_registered = false;
+	mutex_unlock(&reload->lock);
+}
+EXPORT_SYMBOL_GPL(dfl_image_reload_trigger_unregister);
 
 static void dfl_add_reload_dev(struct dfl_image_reload_priv *priv, struct dfl_image_reload *reload)
 {
