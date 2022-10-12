@@ -13,6 +13,7 @@
 #include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/slab.h>
+#include "dfl-image-reload.h"
 
 struct m10bmc_sec {
 	struct device *dev;
@@ -21,6 +22,13 @@ struct m10bmc_sec {
 	char *fw_name;
 	u32 fw_name_id;
 	bool cancel_request;
+	struct image_load *image_load;	/* terminated with { } member */
+	struct dfl_image_trigger *trigger;
+};
+
+struct image_load {
+	const char *name;
+	int (*load_image)(struct m10bmc_sec *sec);
 };
 
 static DEFINE_XARRAY_ALLOC(fw_upload_xa);
@@ -137,6 +145,43 @@ DEVICE_ATTR_SEC_CSK_RO(pr, PR_PROG_ADDR + CSK_VEC_OFFSET);
 
 #define FLASH_COUNT_SIZE 4096	/* count stored as inverted bit vector */
 
+static ssize_t m10bmc_available_images(struct dfl_image_trigger *trigger, char *buf)
+{
+	struct m10bmc_sec *sec = trigger->priv;
+	const struct image_load *hndlr;
+	ssize_t count = 0;
+
+	for (hndlr = sec->image_load; hndlr->name; hndlr++) {
+		count += scnprintf(buf + count, PAGE_SIZE - count,
+				   "%s ", hndlr->name);
+	}
+
+	buf[count - 1] = '\n';
+
+	return count;
+}
+
+static int m10bmc_image_trigger(struct dfl_image_trigger *trigger, const char *buf)
+{
+	struct m10bmc_sec *sec = trigger->priv;
+	const struct image_load *hndlr;
+	int ret = -EINVAL;
+
+	for (hndlr = sec->image_load; hndlr->name; hndlr++) {
+		if (sysfs_streq(buf, hndlr->name)) {
+			ret = hndlr->load_image(sec);
+			break;
+		}
+	}
+
+	return ret;
+}
+
+static const struct dfl_image_trigger_ops trigger_ops = {
+	.image_trigger = m10bmc_image_trigger,
+	.available_images = m10bmc_available_images,
+};
+
 static ssize_t flash_count_show(struct device *dev,
 				struct device_attribute *attr, char *buf)
 {
@@ -207,6 +252,53 @@ static void log_error_regs(struct m10bmc_sec *sec, u32 doorbell)
 	if (!m10bmc_sys_read(sec->m10bmc, M10BMC_AUTH_RESULT, &auth_result))
 		dev_err(sec->dev, "RSU auth result: 0x%08x\n", auth_result);
 }
+
+static int m10bmc_sec_bmc_image_load(struct m10bmc_sec *sec,
+				     unsigned int val)
+{
+	u32 doorbell;
+	int ret;
+
+	if (val > 1) {
+		dev_err(sec->dev, "invalid reload val = %d\n", val);
+		return -EINVAL;
+	}
+
+	ret = m10bmc_sys_read(sec->m10bmc, M10BMC_DOORBELL, &doorbell);
+	if (ret)
+		return ret;
+
+	if (doorbell & DRBL_REBOOT_DISABLED)
+		return -EBUSY;
+
+	return regmap_update_bits(sec->m10bmc->regmap,
+				  M10BMC_SYS_BASE + M10BMC_DOORBELL,
+				  DRBL_CONFIG_SEL | DRBL_REBOOT_REQ,
+				  FIELD_PREP(DRBL_CONFIG_SEL, val) |
+				  DRBL_REBOOT_REQ);
+}
+
+static int m10bmc_sec_bmc_image_load_0(struct m10bmc_sec *sec)
+{
+	return m10bmc_sec_bmc_image_load(sec, 0);
+}
+
+static int m10bmc_sec_bmc_image_load_1(struct m10bmc_sec *sec)
+{
+	return m10bmc_sec_bmc_image_load(sec, 1);
+}
+
+static struct image_load m10bmc_image_load_hndlrs[] = {
+	{
+		.name = "bmc_factory",
+		.load_image = m10bmc_sec_bmc_image_load_1,
+	},
+	{
+		.name = "bmc_user",
+		.load_image = m10bmc_sec_bmc_image_load_0,
+	},
+	{}
+};
 
 static enum fw_upload_err rsu_check_idle(struct m10bmc_sec *sec)
 {
@@ -565,6 +657,7 @@ static int m10bmc_sec_probe(struct platform_device *pdev)
 	sec->dev = &pdev->dev;
 	sec->m10bmc = dev_get_drvdata(pdev->dev.parent);
 	dev_set_drvdata(&pdev->dev, sec);
+	sec->image_load = m10bmc_image_load_hndlrs;
 
 	ret = xa_alloc(&fw_upload_xa, &sec->fw_name_id, sec,
 		       xa_limit_32b, GFP_KERNEL);
@@ -587,6 +680,16 @@ static int m10bmc_sec_probe(struct platform_device *pdev)
 	}
 
 	sec->fwl = fwl;
+
+	sec->trigger = dfl_image_reload_trigger_register(&trigger_ops, sec->dev, sec);
+	if (IS_ERR(sec->trigger)) {
+		dev_err(sec->dev, "register trigger failed\n");
+		kfree(sec->fw_name);
+		xa_erase(&fw_upload_xa, sec->fw_name_id);
+		firmware_upload_unregister(sec->fwl);
+		return PTR_ERR(sec->trigger);
+	}
+
 	return 0;
 }
 
@@ -594,6 +697,7 @@ static int m10bmc_sec_remove(struct platform_device *pdev)
 {
 	struct m10bmc_sec *sec = dev_get_drvdata(&pdev->dev);
 
+	dfl_image_reload_trigger_unregister(sec->trigger);
 	firmware_upload_unregister(sec->fwl);
 	kfree(sec->fw_name);
 	xa_erase(&fw_upload_xa, sec->fw_name_id);
