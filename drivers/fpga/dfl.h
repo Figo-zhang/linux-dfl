@@ -156,6 +156,8 @@
 
 struct dfl_feature_dev_data;
 
+#define is_reload_reserved_dev(ddev) ((ddev)->feature_id == FME_FEATURE_ID_N3000_NIOS)
+
 /**
  * struct dfl_fpga_port_ops - port ops
  *
@@ -493,6 +495,8 @@ struct dfl_fpga_cdev {
 struct dfl_fpga_cdev *
 dfl_fpga_feature_devs_enumerate(struct dfl_fpga_enum_info *info);
 void dfl_fpga_feature_devs_remove(struct dfl_fpga_cdev *cdev);
+void dfl_reload_remove_afus(struct dfl_fpga_cdev *cdev);
+void dfl_reload_remove_non_reserved_devs(struct platform_device *pdev);
 
 struct dfl_feature_dev_data *
 __dfl_fpga_cdev_find_port_data(struct dfl_fpga_cdev *cdev, void *data,

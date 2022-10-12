@@ -484,6 +484,60 @@ EXPORT_SYMBOL_GPL(dfl_dev_get_base_dev);
 
 #define is_header_feature(feature) ((feature)->id == FEATURE_ID_FIU_HEADER)
 
+static void dfl_devs_remove_non_reserved(struct dfl_feature_platform_data *pdata)
+{
+	struct dfl_feature *feature;
+
+	dfl_fpga_dev_for_each_feature(pdata, feature) {
+		if (!feature->ddev)
+			continue;
+
+		/* skip reserved subdevices */
+		if (is_reload_reserved_dev(feature->ddev))
+			continue;
+
+		device_unregister(&feature->ddev->dev);
+		feature->ddev = NULL;
+	}
+}
+
+void dfl_reload_remove_non_reserved_devs(struct platform_device *pdev)
+{
+	struct dfl_feature_platform_data *pdata = dev_get_platdata(&pdev->dev);
+	struct dfl_feature *feature;
+
+	dfl_devs_remove_non_reserved(pdata);
+
+	dfl_fpga_dev_for_each_feature(pdata, feature) {
+		if (feature->ops) {
+			if (feature->ops->uinit)
+				feature->ops->uinit(pdev, feature);
+			feature->ops = NULL;
+		}
+	}
+}
+EXPORT_SYMBOL_GPL(dfl_reload_remove_non_reserved_devs);
+
+void dfl_reload_remove_afus(struct dfl_fpga_cdev *cdev)
+{
+	struct dfl_feature_platform_data *pdata, *ptmp;
+
+	mutex_lock(&cdev->lock);
+
+	list_for_each_entry_safe(pdata, ptmp, &cdev->port_dev_list, node) {
+		struct platform_device *port_dev = pdata->dev;
+		enum dfl_id_type type = feature_dev_id_type(port_dev);
+		int id = port_dev->id;
+
+		list_del(&pdata->node);
+		port_dev->dev.parent = NULL;
+		platform_device_unregister(port_dev);
+		dfl_id_free(type, id);
+	}
+	mutex_unlock(&cdev->lock);
+}
+EXPORT_SYMBOL_GPL(dfl_reload_remove_afus);
+
 /**
  * dfl_fpga_dev_feature_uinit - uinit for sub features of dfl feature device
  * @pdev: feature device.
@@ -889,6 +943,8 @@ err_put_dev:
 
 static void feature_dev_unregister(struct dfl_feature_dev_data *fdata)
 {
+	if (!device_is_registered(&fdata->dev->dev))
+		return;
 	platform_device_unregister(fdata->dev);
 	fdata->dev = NULL;
 }
