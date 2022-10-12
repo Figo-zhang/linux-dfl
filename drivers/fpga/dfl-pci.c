@@ -60,6 +60,7 @@ static int dfl_reload_prepare(struct fpga_manager *mgr)
 
 static const struct fpga_manager_ops reload_ops = {
 	.reload_prepare = dfl_reload_prepare,
+	.groups = dfl_reload_attr_groups,
 };
 
 static void __iomem *cci_pci_ioremap_bar0(struct pci_dev *pcidev)

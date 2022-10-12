@@ -57,6 +57,9 @@ struct dfl_image_reload {
 	struct list_head node;
 };
 
+/* Timeout (10s) for image reload */
+#define RELOAD_TIMEOUT_MS  (10 * 1000)
+
 struct dfl_image_reload *
 dfl_image_reload_dev_register(const char *name,
 			      const struct fpga_manager_ops *ops, void *priv);
@@ -65,6 +68,8 @@ struct dfl_image_trigger *
 dfl_image_reload_trigger_register(const struct dfl_image_trigger_ops *ops,
 				  struct device *parent, void *priv);
 void dfl_image_reload_trigger_unregister(struct dfl_image_trigger *trigger);
+
+extern const struct attribute_group *dfl_reload_attr_groups[];
 
 #endif
 
