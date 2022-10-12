@@ -31,12 +31,14 @@ struct dfl_image_trigger_ops {
  * @priv: private data for dfl_image_trigger
  * @parent: parent device of trigger
  * @is_registered: register status
+ * @wait_time: seconds of wait time for image reload
  */
 struct dfl_image_trigger {
 	const struct dfl_image_trigger_ops *ops;
 	void *priv;
 	struct device *parent;
 	bool is_registered;
+	u32 wait_time;
 };
 
 /**
@@ -59,6 +61,9 @@ struct dfl_image_reload {
 	struct list_head node;
 };
 
+/* default wait seconds for image reload */
+#define RELOAD_DEFAULT_WAIT_SECS  10
+
 struct dfl_image_reload *
 dfl_image_reload_dev_register(const char *name,
 			      const struct fpga_card_ops *ops, void *priv);
@@ -67,6 +72,8 @@ struct dfl_image_trigger *
 dfl_image_reload_trigger_register(const struct dfl_image_trigger_ops *ops,
 				  struct device *parent, void *priv);
 void dfl_image_reload_trigger_unregister(struct dfl_image_trigger *trigger);
+
+extern const struct attribute_group *dfl_reload_attr_groups[];
 
 #endif
 

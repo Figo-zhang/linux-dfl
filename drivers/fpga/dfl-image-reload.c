@@ -10,6 +10,7 @@
 #include <linux/fpga-dfl.h>
 #include <linux/module.h>
 #include <linux/uaccess.h>
+#include <linux/delay.h>
 #include "dfl-image-reload.h"
 
 struct dfl_image_reload_priv {
@@ -20,6 +21,224 @@ struct dfl_image_reload_priv {
 static struct dfl_image_reload_priv *dfl_priv;
 
 #define to_dfl_trigger_reload(d) container_of(d, struct dfl_image_reload, trigger)
+
+static int dfl_reload_disable_pcie_link(struct pci_dev *root, bool disable)
+{
+	u16 linkctl;
+	int ret;
+
+	if (!root)
+		return -EINVAL;
+
+	ret = pcie_capability_read_word(root, PCI_EXP_LNKCTL, &linkctl);
+	if (ret)
+		return -EINVAL;
+
+	if (disable) {
+		if (linkctl & PCI_EXP_LNKCTL_LD)
+			goto out;
+		linkctl |= PCI_EXP_LNKCTL_LD;
+	} else {
+		if (!(linkctl & PCI_EXP_LNKCTL_LD))
+			goto out;
+		linkctl &= ~PCI_EXP_LNKCTL_LD;
+	}
+
+	ret = pcie_capability_write_word(root, PCI_EXP_LNKCTL, linkctl);
+	if (ret)
+		return ret;
+out:
+	return 0;
+}
+
+static void dfl_reload_rescan_pci_bus(void)
+{
+	struct pci_bus *b = NULL;
+
+	pci_lock_rescan_remove();
+	while ((b = pci_find_next_bus(b)) != NULL)
+		pci_rescan_bus(b);
+	pci_unlock_rescan_remove();
+}
+
+static ssize_t available_images_show(struct device *dev,
+				     struct device_attribute *attr, char *buf)
+{
+	struct fpga_card *card = to_fpga_card(dev);
+	struct dfl_image_reload *reload = card->priv;
+	struct dfl_image_trigger *trigger = &reload->trigger;
+	ssize_t count = 0;
+
+	if (!reload->is_registered || !trigger->is_registered)
+		return -EINVAL;
+
+	if (!trigger->ops->available_images)
+		return -EINVAL;
+
+	mutex_lock(&dfl_priv->lock);
+	count = trigger->ops->available_images(trigger, buf);
+	mutex_unlock(&dfl_priv->lock);
+
+	return count;
+}
+
+static void dfl_reload_remove_sibling_pci_dev(struct pci_dev *pcidev)
+{
+	struct pci_bus *bus = pcidev->bus;
+	struct pci_dev *sibling, *tmp;
+
+	if (bus) {
+		list_for_each_entry_safe_reverse(sibling, tmp,
+						 &bus->devices, bus_list)
+			if (sibling != pcidev)
+				pci_stop_and_remove_bus_device_locked(sibling);
+	}
+}
+
+static ssize_t image_reload_store(struct device *dev,
+				  struct device_attribute *attr,
+				  const char *buf, size_t count)
+{
+	struct fpga_card *card = to_fpga_card(dev);
+	struct dfl_image_reload *reload = card->priv;
+	struct dfl_image_trigger *trigger = &reload->trigger;
+	struct pci_dev *pcidev, *remove_port;
+	int ret = -EINVAL;
+
+	if (!reload->is_registered || !trigger->is_registered)
+		return -EINVAL;
+
+	if (!trigger->ops->image_trigger)
+		return -EINVAL;
+
+	pcidev = reload->priv;
+	if (!pcidev)
+		return -EINVAL;
+
+	remove_port = pcie_find_root_port(pcidev);
+	if (!remove_port)
+		return -EINVAL;
+
+	ret = fpga_card_lock(card);
+	if (ret)
+		return ret;
+
+	/* 1. remove all PFs and VFs except the PF0*/
+	dfl_reload_remove_sibling_pci_dev(pcidev);
+
+	/* 2. remove all non-reserved devices */
+	ret = fpga_card_prepare_image_reload(card);
+	if (ret) {
+		dev_err(&card->dev, "prepare image reload failed\n");
+		goto out;
+	}
+
+	/* 3. trigger image reload */
+	ret = trigger->ops->image_trigger(trigger, buf);
+	if (ret) {
+		dev_err(&card->dev, "image trigger failed\n");
+		goto out;
+	}
+
+	/* 4. disable pci link of remove port */
+	ret = dfl_reload_disable_pcie_link(remove_port, true);
+	if (ret) {
+		dev_err(&card->dev, "disable pcie link of remove port failed\n");
+		goto out;
+	}
+
+	/* 5. remove reserved devices under PF0 and PCI devices under remove port*/
+	pci_stop_and_remove_bus_device_locked(remove_port);
+
+	/* 6. Wait for FPGA/BMC reload done */
+	ssleep(trigger->wait_time);
+
+	/* 7. enable pci link of remove port */
+	ret = dfl_reload_disable_pcie_link(remove_port, false);
+	if (ret) {
+		dev_err(&card->dev, "enable pcie link of remove port failed\n");
+		goto out;
+	}
+
+out:
+	fpga_card_unlock(card);
+
+	/* 8. rescan the PCI bus*/
+	dfl_reload_rescan_pci_bus();
+
+	return ret ? : count;
+}
+
+static ssize_t name_show(struct device *dev,
+			 struct device_attribute *attr, char *buf)
+{
+	struct fpga_card *card = to_fpga_card(dev);
+	struct dfl_image_reload *reload = card->priv;
+
+	if (!reload->is_registered)
+		return -EINVAL;
+
+	return sysfs_emit(buf, "%s\n", card->name);
+}
+
+static ssize_t reload_wait_secs_store(struct device *dev,
+				      struct device_attribute *attr,
+				      const char *buf, size_t count)
+{
+	struct fpga_card *card = to_fpga_card(dev);
+	struct dfl_image_reload *reload = card->priv;
+	struct dfl_image_trigger *trigger = &reload->trigger;
+	unsigned long val;
+
+	if (!reload->is_registered || !trigger->is_registered)
+		return -EINVAL;
+
+	if (kstrtoul(buf, 0, &val) < 0)
+		return -EINVAL;
+
+	mutex_lock(&reload->lock);
+	trigger->wait_time = val;
+	mutex_unlock(&reload->lock);
+
+	return count;
+}
+
+static ssize_t reload_wait_secs_show(struct device *dev,
+				     struct device_attribute *attr, char *buf)
+{
+	struct fpga_card *card = to_fpga_card(dev);
+	struct dfl_image_reload *reload = card->priv;
+	struct dfl_image_trigger *trigger = &reload->trigger;
+
+	if (!reload->is_registered || !trigger->is_registered)
+		return -EINVAL;
+
+	return sysfs_emit(buf, "%u\n", trigger->wait_time);
+}
+
+static DEVICE_ATTR_RO(name);
+static DEVICE_ATTR_RO(available_images);
+static DEVICE_ATTR_WO(image_reload);
+static DEVICE_ATTR_RW(reload_wait_secs);
+
+static struct attribute *dfl_image_reload_attrs[] = {
+	&dev_attr_name.attr,
+	&dev_attr_available_images.attr,
+	&dev_attr_image_reload.attr,
+	&dev_attr_reload_wait_secs.attr,
+	NULL,
+};
+
+static const struct attribute_group dfl_reload_attr_group = {
+	.name = "dfl_reload",
+	.attrs = dfl_image_reload_attrs,
+};
+
+const struct attribute_group *dfl_reload_attr_groups[] = {
+	&dfl_reload_attr_group,
+	NULL,
+};
+EXPORT_SYMBOL_GPL(dfl_reload_attr_groups);
 
 static bool dfl_match_trigger_dev(struct dfl_image_reload *reload, struct device *parent)
 {
@@ -80,6 +299,7 @@ dfl_image_reload_trigger_register(const struct dfl_image_trigger_ops *ops,
 	trigger->priv = priv;
 	trigger->parent = parent;
 	trigger->ops = ops;
+	trigger->wait_time = RELOAD_DEFAULT_WAIT_SECS;
 	trigger->is_registered = true;
 	mutex_unlock(&reload->lock);
 
