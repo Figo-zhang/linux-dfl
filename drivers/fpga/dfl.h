@@ -470,6 +470,7 @@ void dfl_fpga_enum_info_free(struct dfl_fpga_enum_info *info);
  * @lock: mutex lock to protect the port device list.
  * @port_dev_list: list of all port feature devices under this container device.
  * @released_port_num: released port number under this container device.
+ * @dfl_reload: dfl image reload.
  */
 struct dfl_fpga_cdev {
 	struct device *parent;
@@ -478,6 +479,7 @@ struct dfl_fpga_cdev {
 	struct mutex lock;
 	struct list_head port_dev_list;
 	int released_port_num;
+	struct dfl_image_reload *dfl_reload;
 };
 
 struct dfl_fpga_cdev *
