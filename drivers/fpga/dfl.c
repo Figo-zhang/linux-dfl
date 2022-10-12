@@ -486,6 +486,77 @@ EXPORT_SYMBOL(dfl_driver_unregister);
 
 #define is_header_feature(feature) ((feature)->id == FEATURE_ID_FIU_HEADER)
 
+static bool dfl_device_is_parent(struct dfl_device *dfl_dev, struct device *trigger_dev)
+{
+	struct device *ddev = &dfl_dev->dev;
+	struct device *dev = trigger_dev;
+
+	/* Find the dfl device via trigger_dev's topology */
+	while (dev) {
+		if (dev == ddev)
+			return true;
+
+		dev = dev->parent;
+	}
+
+	return false;
+}
+
+static void dfl_devs_remove_non_reserved(struct dfl_feature_platform_data *pdata,
+					 struct device *trigger_dev)
+{
+	struct dfl_feature *feature;
+
+	dfl_fpga_dev_for_each_feature(pdata, feature) {
+		if (!feature->ddev)
+			continue;
+
+		/* find and skip reserved dfl device */
+		if (dfl_device_is_parent(feature->ddev, trigger_dev))
+			continue;
+
+		device_unregister(&feature->ddev->dev);
+		feature->ddev = NULL;
+	}
+}
+
+void dfl_reload_remove_non_reserved_devs(struct platform_device *pdev, struct device *trigger_dev)
+{
+	struct dfl_feature_platform_data *pdata = dev_get_platdata(&pdev->dev);
+	struct dfl_feature *feature;
+
+	dfl_devs_remove_non_reserved(pdata, trigger_dev);
+
+	dfl_fpga_dev_for_each_feature(pdata, feature) {
+		if (feature->ops) {
+			if (feature->ops->uinit)
+				feature->ops->uinit(pdev, feature);
+			feature->ops = NULL;
+		}
+	}
+}
+EXPORT_SYMBOL_GPL(dfl_reload_remove_non_reserved_devs);
+
+void dfl_reload_remove_afus(struct dfl_fpga_cdev *cdev)
+{
+	struct dfl_feature_platform_data *pdata, *ptmp;
+
+	mutex_lock(&cdev->lock);
+
+	list_for_each_entry_safe(pdata, ptmp, &cdev->port_dev_list, node) {
+		struct platform_device *port_dev = pdata->dev;
+		enum dfl_id_type type = feature_dev_id_type(port_dev);
+		int id = port_dev->id;
+
+		list_del(&pdata->node);
+		port_dev->dev.parent = NULL;
+		platform_device_unregister(port_dev);
+		dfl_id_free(type, id);
+	}
+	mutex_unlock(&cdev->lock);
+}
+EXPORT_SYMBOL_GPL(dfl_reload_remove_afus);
+
 /**
  * dfl_fpga_dev_feature_uinit - uinit for sub features of dfl feature device
  * @pdev: feature device.
@@ -1375,6 +1446,10 @@ static int remove_feature_dev(struct device *dev, void *data)
 	struct platform_device *pdev = to_platform_device(dev);
 	enum dfl_id_type type = feature_dev_id_type(pdev);
 	int id = pdev->id;
+
+	/* pdev has released */
+	if (!device_is_registered(&pdev->dev))
+		return 0;
 
 	platform_device_unregister(pdev);
 
