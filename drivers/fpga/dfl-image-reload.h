@@ -10,6 +10,7 @@
 
 #include <linux/device.h>
 #include <linux/fpga/fpga-mgr.h>
+#include <linux/mfd/intel-m10-bmc.h>
 
 struct dfl_image_reload;
 struct dfl_image_trigger;
@@ -34,6 +35,7 @@ struct dfl_image_trigger_ops {
 struct dfl_image_trigger {
 	const struct dfl_image_trigger_ops *ops;
 	void *priv;
+	enum fpga_sec_type type;
 	bool is_registered;
 };
 
@@ -66,7 +68,7 @@ dfl_image_reload_dev_register(const char *name,
 void dfl_image_reload_dev_unregister(struct dfl_image_reload *dfl_reload);
 struct dfl_image_trigger *
 dfl_image_reload_trigger_register(const struct dfl_image_trigger_ops *ops,
-				  struct device *parent, void *priv);
+				  struct device *parent, enum fpga_sec_type type, void *priv);
 void dfl_image_reload_trigger_unregister(struct dfl_image_trigger *trigger);
 
 extern const struct attribute_group *dfl_reload_attr_groups[];

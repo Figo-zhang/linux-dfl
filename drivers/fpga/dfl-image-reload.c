@@ -102,6 +102,7 @@ static ssize_t image_reload_store(struct device *dev,
 	struct fpga_manager *mgr = to_fpga_manager(dev);
 	struct dfl_image_reload *reload = mgr->priv;
 	struct dfl_image_trigger *trigger = &reload->trigger;
+	enum fpga_sec_type type = trigger->type;
 	struct pci_dev *pcidev, *root;
 	int ret = -EINVAL;
 
@@ -115,14 +116,19 @@ static ssize_t image_reload_store(struct device *dev,
 	if (!pcidev)
 		return -EINVAL;
 
-	root = pcie_find_root_port(pcidev);
-	if (!root)
-		return -EINVAL;
+	if (type == N6000BMC_SEC)
+		root = pcidev;
+	else {
+		root = pcie_find_root_port(pcidev);
+		if (!root)
+			return -EINVAL;
+	}
 
 	mutex_lock(&dfl_priv->lock);
 
 	/* 1. remove all PFs and VFs except the PF0*/
 	dfl_reload_remove_sibling_pci_dev(pcidev);
+	printk("%s 1 done\n", __func__);
 
 	/* 2. remove all non-reserved devices */
 	if (mgr->mops->reload_prepare) {
@@ -132,13 +138,17 @@ static ssize_t image_reload_store(struct device *dev,
 			goto out;
 		}
 	}
+	printk("%s 2 done\n", __func__);
 
+#if 1
 	/* 3. trigger image reload */
 	ret = trigger->ops->image_trigger(trigger, buf);
 	if (ret) {
 		dev_err(&mgr->dev, "image trigger failed\n");
 		goto out;
 	}
+#endif
+	printk("%s 3 done\n", __func__);
 
 	/* 4. disable pci root hub link */
 	ret = dfl_reload_disable_pcie_link(root, true);
@@ -146,9 +156,11 @@ static ssize_t image_reload_store(struct device *dev,
 		dev_err(&mgr->dev, "disable root pcie link failed\n");
 		goto out;
 	}
+	printk("%s 4 done\n", __func__);
 
 	/* 5. remove reserved devices under FP0 and PCI devices under root hub*/
 	pci_stop_and_remove_bus_device_locked(root);
+	printk("%s 5 done\n", __func__);
 
 	/* 6. Wait for FPGA/BMC reload done. eg, 10s */
 	msleep(RELOAD_TIMEOUT_MS);
@@ -159,6 +171,7 @@ static ssize_t image_reload_store(struct device *dev,
 		dev_err(&mgr->dev, "enable root pcie link failed\n");
 		goto out;
 	}
+	printk("%s 7 done\n", __func__);
 
 out:
 	mutex_unlock(&dfl_priv->lock);
@@ -244,7 +257,8 @@ dfl_find_trigger(struct device *parent)
 
 struct dfl_image_trigger *
 dfl_image_reload_trigger_register(const struct dfl_image_trigger_ops *ops,
-				  struct device *parent, void *priv)
+				  struct device *parent, enum fpga_sec_type type,
+				  void *priv)
 {
 	struct dfl_image_reload *reload;
 	struct dfl_image_trigger *trigger;
@@ -260,6 +274,7 @@ dfl_image_reload_trigger_register(const struct dfl_image_trigger_ops *ops,
 
 	mutex_lock(&reload->lock);
 	trigger->priv = priv;
+	trigger->type = type;
 	trigger->ops = ops;
 	trigger->is_registered = true;
 	mutex_unlock(&reload->lock);
@@ -388,9 +403,19 @@ dfl_image_reload_dev_register(const char *name, const struct fpga_manager_ops *o
 
 	pcidev = (struct pci_dev *)priv;
 
+	printk("pci: %04x:%02x:%02x.%d", pci_domain_nr(pcidev->bus),
+                                        pcidev->bus->number, PCI_SLOT(pcidev->devfn),
+                                        PCI_FUNC(pcidev->devfn));
+
 	root = pcie_find_root_port(pcidev);
-	if (!root)
+	if (!root) {
+		printk("%s canot find root dev\n", __func__);
 		return ERR_PTR(-EINVAL);
+	}
+
+	 printk("root: %04x:%02x:%02x.%d", pci_domain_nr(root->bus),
+                                        root->bus->number, PCI_SLOT(root->devfn),
+                                        PCI_FUNC(root->devfn));
 
 	/* find exist matched reload dev */
 	reload = dfl_find_exist_reload(pcidev, ops);

@@ -23,6 +23,14 @@ enum m10bmc_type {
 	M10_N5014,
 };
 
+/* Supported fpga secure manager types */
+enum fpga_sec_type {
+	N3000BMC_SEC,
+	D5005BMC_SEC,
+	N5010BMC_SEC,
+	N6000BMC_SEC
+};
+
 #define M10BMC_LEGACY_BUILD_VER		0x300468
 #define M10BMC_SYS_BASE			0x300800
 #define M10BMC_SYS_END			0x300fff

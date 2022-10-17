@@ -17,13 +17,6 @@
 
 struct m10bmc_sec;
 
-/* Supported fpga secure manager types */
-enum fpga_sec_type {
-	N3000BMC_SEC,
-	D5005BMC_SEC,
-	N5010BMC_SEC,
-	N6000BMC_SEC
-};
 
 /* Supported names for power-on images */
 enum fpga_image {
@@ -1687,7 +1680,7 @@ static int m10bmc_sec_probe(struct platform_device *pdev)
 
 	sec->fwl = fwl;
 
-	sec->trigger = dfl_image_reload_trigger_register(&trigger_ops, sec->dev, sec);
+	sec->trigger = dfl_image_reload_trigger_register(&trigger_ops, sec->dev, type, sec);
         if (IS_ERR(sec->trigger)) {
                 dev_err(sec->dev, "register trigger failed\n");
                 kfree(sec->fw_name);
