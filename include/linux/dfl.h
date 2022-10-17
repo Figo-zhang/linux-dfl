@@ -11,6 +11,8 @@
 #include <linux/device.h>
 #include <linux/mod_devicetable.h>
 
+#define FME_FEATURE_ID_PMCI_BMC 0x12
+
 /*
  * Device Feature Header Register Set
  *

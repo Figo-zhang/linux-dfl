@@ -156,7 +156,8 @@
 
 struct dfl_feature_dev_data;
 
-#define is_reload_reserved_dev(ddev) ((ddev)->feature_id == FME_FEATURE_ID_N3000_NIOS)
+#define is_reload_reserved_dev(ddev) (((ddev)->feature_id == FME_FEATURE_ID_N3000_NIOS) || \
+		((ddev)->feature_id == FME_FEATURE_ID_PMCI_BMC))
 
 /**
  * struct dfl_fpga_port_ops - port ops

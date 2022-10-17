@@ -202,8 +202,6 @@ static void pmci_remove(struct dfl_device *ddev)
 	mutex_destroy(&m10bmc->flash_ops->mux_lock);
 }
 
-#define FME_FEATURE_ID_PMCI_BMC	0x12
-
 static const struct dfl_device_id pmci_ids[] = {
 	{ FME_ID, FME_FEATURE_ID_PMCI_BMC },
 	{ }
