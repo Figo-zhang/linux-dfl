@@ -13,6 +13,7 @@
 #include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/slab.h>
+#include "dfl-image-reload.h"
 
 struct m10bmc_sec;
 
@@ -57,6 +58,7 @@ struct m10bmc_sec {
 	enum fpga_sec_type type;
 	const struct fpga_power_on *poc;	/* power on image configuration */
 	struct work_struct work;
+	struct dfl_image_trigger *trigger;
 };
 
 struct image_load {
@@ -1062,6 +1064,7 @@ static const struct fpga_power_on pmci_power_on_image = {
 	.get_sequence = pmci_get_power_on_image,
 };
 
+#if 0
 static ssize_t available_images_show(struct device *dev,
 				     struct device_attribute *attr, char *buf)
 {
@@ -1098,6 +1101,44 @@ static ssize_t image_load_store(struct device *dev,
 	return ret ? : count;
 }
 static DEVICE_ATTR_WO(image_load);
+#endif
+
+static ssize_t m10bmc_available_images(struct dfl_image_trigger *trigger, char *buf)
+{
+        struct m10bmc_sec *sec = trigger->priv;
+        const struct image_load *hndlr;
+        ssize_t count = 0;
+
+        for (hndlr = sec->image_load; hndlr->name; hndlr++) {
+                count += scnprintf(buf + count, PAGE_SIZE - count,
+                                   "%s ", hndlr->name);
+        }
+
+        buf[count - 1] = '\n';
+
+        return count;
+}
+
+static int m10bmc_image_trigger(struct dfl_image_trigger *trigger, const char *buf)
+{
+        struct m10bmc_sec *sec = trigger->priv;
+        const struct image_load *hndlr;
+        int ret = -EINVAL;
+
+        for (hndlr = sec->image_load; hndlr->name; hndlr++) {
+                if (sysfs_streq(buf, hndlr->name)) {
+                        ret = hndlr->load_image(sec);
+                        break;
+                }
+        }
+
+        return ret;
+}
+
+static const struct dfl_image_trigger_ops trigger_ops = {
+        .image_trigger = m10bmc_image_trigger,
+        .available_images = m10bmc_available_images,
+};
 
 static umode_t
 m10bmc_image_is_visible(struct kobject *kobj, struct attribute *attr, int n)
@@ -1114,8 +1155,8 @@ m10bmc_image_is_visible(struct kobject *kobj, struct attribute *attr, int n)
 }
 
 static struct attribute *m10bmc_control_attrs[] = {
-	&dev_attr_available_images.attr,
-	&dev_attr_image_load.attr,
+	//&dev_attr_available_images.attr,
+	//&dev_attr_image_load.attr,
 	&dev_attr_power_on_image.attr,
 	&dev_attr_available_power_on_images.attr,
 	&dev_attr_fpga_boot_image.attr,
@@ -1645,6 +1686,16 @@ static int m10bmc_sec_probe(struct platform_device *pdev)
 	}
 
 	sec->fwl = fwl;
+
+	sec->trigger = dfl_image_reload_trigger_register(&trigger_ops, sec->dev, sec);
+        if (IS_ERR(sec->trigger)) {
+                dev_err(sec->dev, "register trigger failed\n");
+                kfree(sec->fw_name);
+                xa_erase(&fw_upload_xa, sec->fw_name_id);
+                firmware_upload_unregister(sec->fwl);
+                return PTR_ERR(sec->trigger);
+        }
+
 	return 0;
 }
 
@@ -1655,6 +1706,7 @@ static int m10bmc_sec_remove(struct platform_device *pdev)
 	if (sec->type == N6000BMC_SEC)
 		flush_work(&sec->work);
 
+	dfl_image_reload_trigger_unregister(sec->trigger);
 	firmware_upload_unregister(sec->fwl);
 	kfree(sec->fw_name);
 	xa_erase(&fw_upload_xa, sec->fw_name_id);
