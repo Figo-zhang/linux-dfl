@@ -397,11 +397,13 @@ static int cci_enumerate_feature_devs(struct pci_dev *pcidev)
 	if (ret)
 		goto irq_free_exit;
 
+	if (dev_is_pf(&pcidev->dev)) {
 	dfl_reload = dfl_image_reload_dev_register(dev_name(&pcidev->dev), &reload_ops, pcidev);
 	if (IS_ERR(dfl_reload)) {
 		dev_err(&pcidev->dev, "dfl image reload register failure\n");
 		ret = PTR_ERR(dfl_reload);
 		goto irq_free_exit;
+	}
 	}
 
 	/* start enumeration with prepared enumeration information */
@@ -509,10 +511,10 @@ static void cci_pci_remove(struct pci_dev *pcidev)
 	struct cci_drvdata *drvdata = pci_get_drvdata(pcidev);
 	struct dfl_fpga_cdev *cdev = drvdata->cdev;
 
-	if (dev_is_pf(&pcidev->dev))
+	if (dev_is_pf(&pcidev->dev)) {
 		cci_pci_sriov_configure(pcidev, 0);
-
-	dfl_image_reload_dev_unregister(cdev->dfl_reload);
+		dfl_image_reload_dev_unregister(cdev->dfl_reload);
+	}
 
 	cci_remove_feature_devs(pcidev);
 	pci_disable_pcie_error_reporting(pcidev);
