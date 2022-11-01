@@ -41,9 +41,9 @@ struct cci_drvdata {
 	struct dfl_fpga_cdev *cdev;	/* container device */
 };
 
-static int dfl_reload_prepare(struct fpga_manager *mgr)
+static int dfl_reload_prepare(struct fpga_card *card)
 {
-	struct dfl_image_reload *dfl_reload = mgr->priv;
+	struct dfl_image_reload *dfl_reload = card->priv;
 	struct device *trigger_dev = dfl_reload->trigger.parent;
 	struct pci_dev *pcidev = dfl_reload->priv;
 	struct cci_drvdata *drvdata = pci_get_drvdata(pcidev);
@@ -59,7 +59,7 @@ static int dfl_reload_prepare(struct fpga_manager *mgr)
 	return 0;
 }
 
-static const struct fpga_manager_ops reload_ops = {
+static const struct fpga_card_ops reload_ops = {
 	.reload_prepare = dfl_reload_prepare,
 	.groups = dfl_reload_attr_groups,
 };
