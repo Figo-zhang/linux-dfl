@@ -34,6 +34,7 @@ struct dfl_image_trigger_ops {
 struct dfl_image_trigger {
 	const struct dfl_image_trigger_ops *ops;
 	void *priv;
+	struct device *parent;
 	bool is_registered;
 };
 

@@ -260,6 +260,7 @@ dfl_image_reload_trigger_register(const struct dfl_image_trigger_ops *ops,
 
 	mutex_lock(&reload->lock);
 	trigger->priv = priv;
+	trigger->parent = parent;
 	trigger->ops = ops;
 	trigger->is_registered = true;
 	mutex_unlock(&reload->lock);

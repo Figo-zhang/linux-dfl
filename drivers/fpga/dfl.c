@@ -486,7 +486,26 @@ EXPORT_SYMBOL(dfl_driver_unregister);
 
 #define is_header_feature(feature) ((feature)->id == FEATURE_ID_FIU_HEADER)
 
-static void dfl_devs_remove_non_reserved(struct dfl_feature_platform_data *pdata)
+static bool dfl_find_reserved_dfl_device(struct dfl_device *dfl_dev, struct device *trigger_dev)
+{
+	struct device *ddev = &dfl_dev->dev;
+	struct device *dev = trigger_dev;
+
+	/*
+	 * Find the dfl device via the parent topology of trigger_dev
+	 */
+	while (dev) {
+		if (dev == ddev)
+			return true;
+
+		dev = dev->parent;
+	}
+
+	return false;
+}
+
+static void dfl_devs_remove_non_reserved(struct dfl_feature_platform_data *pdata,
+					 struct device *trigger_dev)
 {
 	struct dfl_feature *feature;
 
@@ -494,8 +513,8 @@ static void dfl_devs_remove_non_reserved(struct dfl_feature_platform_data *pdata
 		if (!feature->ddev)
 			continue;
 
-		/* skip reserved subdevices */
-		if (is_reload_reserved_dev(feature->ddev))
+		/* find and skip reserved dfl device */
+		if (dfl_find_reserved_dfl_device(feature->ddev, trigger_dev))
 			continue;
 
 		device_unregister(&feature->ddev->dev);
@@ -503,12 +522,12 @@ static void dfl_devs_remove_non_reserved(struct dfl_feature_platform_data *pdata
 	}
 }
 
-void dfl_reload_remove_non_reserved_devs(struct platform_device *pdev)
+void dfl_reload_remove_non_reserved_devs(struct platform_device *pdev, struct device *trigger_dev)
 {
 	struct dfl_feature_platform_data *pdata = dev_get_platdata(&pdev->dev);
 	struct dfl_feature *feature;
 
-	dfl_devs_remove_non_reserved(pdata);
+	dfl_devs_remove_non_reserved(pdata, trigger_dev);
 
 	dfl_fpga_dev_for_each_feature(pdata, feature) {
 		if (feature->ops) {
