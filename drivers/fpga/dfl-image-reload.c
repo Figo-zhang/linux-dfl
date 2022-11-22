@@ -115,6 +115,8 @@ static int dfl_hotplug_image_reload(struct hotplug_slot *slot, const char *buf)
 	if (!remove_port)
 		return -EINVAL;
 
+	mutex_lock(&dfl_priv->lock);
+
 	/* 1. remove all PFs and VFs except the PF0*/
 	dfl_reload_remove_sibling_pci_dev(pcidev);
 
@@ -155,6 +157,8 @@ static int dfl_hotplug_image_reload(struct hotplug_slot *slot, const char *buf)
 	}
 
 out:
+	mutex_unlock(&dfl_priv->lock);
+
 	/* 8. rescan the PCI bus*/
 	dfl_reload_rescan_pci_bus();
 
