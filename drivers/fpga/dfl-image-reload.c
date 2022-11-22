@@ -2,20 +2,21 @@
 /*
  * Intel DFL FPGA Image Reload Driver
  *
- * Copyright (C) 2022 Intel Corporation. All rights reserved.
+ * Copyright (C) 2022 Intel Corporation
  *
  */
+#include <linux/delay.h>
 #include <linux/dfl.h>
-#include <linux/pci.h>
 #include <linux/fpga-dfl.h>
 #include <linux/module.h>
+#include <linux/pci.h>
 #include <linux/uaccess.h>
-#include <linux/delay.h>
+
 #include "dfl-image-reload.h"
 
 struct dfl_image_reload_priv {
-	struct mutex lock; /* protect data structure contents */
 	struct list_head dev_list;
+	struct mutex lock; /* protect data structure contents */
 };
 
 static struct dfl_image_reload_priv *dfl_priv;
@@ -65,7 +66,7 @@ static ssize_t dfl_hotplug_available_images(struct hotplug_slot *slot, char *buf
 {
 	struct dfl_image_reload *reload = to_dfl_reload(slot);
 	struct dfl_image_trigger *trigger = &reload->trigger;
-	ssize_t count = 0;
+	ssize_t count;
 
 	if (!reload->is_registered || !trigger->is_registered)
 		return -EINVAL;
@@ -160,6 +161,11 @@ out:
 	return ret;
 }
 
+static const struct hotplug_slot_ops dfl_hotplug_slot_ops = {
+	.available_images	= dfl_hotplug_available_images,
+	.image_reload	        = dfl_hotplug_image_reload
+};
+
 static bool dfl_match_trigger_dev(struct dfl_image_reload *reload, struct device *parent)
 {
 	struct pci_dev *pcidev = reload->priv;
@@ -244,11 +250,6 @@ static void dfl_add_reload_dev(struct dfl_image_reload_priv *priv, struct dfl_im
 	mutex_unlock(&priv->lock);
 }
 
-static const struct hotplug_slot_ops dfl_slot_ops = {
-	.available_images	= dfl_hotplug_available_images,
-	.image_reload	        = dfl_hotplug_image_reload,
-};
-
 static struct dfl_image_reload *
 dfl_create_new_reload_dev(struct pci_dev *pcidev, const char * name,
 		const struct dfl_image_reload_ops *ops, void *priv)
@@ -265,10 +266,10 @@ dfl_create_new_reload_dev(struct pci_dev *pcidev, const char * name,
 	pcie_capability_read_dword(pcidev, PCI_EXP_SLTCAP, &slot_cap);
 	snprintf(slot_name, SLOT_NAME_SIZE, "%u", (slot_cap & PCI_EXP_SLTCAP_PSN) >> 19);
 
-	reload->slot.ops = &dfl_slot_ops;
+	reload->slot.ops = &dfl_hotplug_slot_ops;
 
 	/* Register PCI slot */
-	ret = pci_hp_register(&reload->slot, pcidev->subordinate, 0, slot_name); 
+	ret = pci_hp_register(&reload->slot, pcidev->subordinate, PCI_SLOT(pcidev->devfn), slot_name); 
 	if (ret) {
 		pr_err("pci_hp_register failed with error %d\n", ret);
 		goto error_kfree;
@@ -351,7 +352,7 @@ static void dfl_image_reload_remove_devs(void)
 struct dfl_image_reload *
 dfl_image_reload_dev_register(const char *name, const struct dfl_image_reload_ops *ops, void *priv)
 {
-	struct pci_dev *pcidev, *root;
+	struct pci_dev *pcidev, *hotplug_dev;
 	struct dfl_image_reload *reload;
 
 	if (!ops || !priv)
@@ -359,9 +360,18 @@ dfl_image_reload_dev_register(const char *name, const struct dfl_image_reload_op
 
 	pcidev = (struct pci_dev *)priv;
 
-	root = pcie_find_root_port(pcidev);
-	if (!root)
+	dev_dbg(&pcidev->dev, "registering pci: %04x:%02x:%02x.%d to reload driver\n",
+			pci_domain_nr(pcidev->bus), pcidev->bus->number,
+			PCI_SLOT(pcidev->devfn), PCI_FUNC(pcidev->devfn));
+
+	/* For N3000, the hotplug port was on the root port of PF0 */
+	hotplug_dev = pcie_find_root_port(pcidev);
+	if (!hotplug_dev)
 		return ERR_PTR(-EINVAL);
+
+	dev_dbg(&pcidev->dev, "hotplug slot: %04x:%02x:%02x\n",
+			pci_domain_nr(hotplug_dev->bus), hotplug_dev->bus->number,
+			PCI_SLOT(hotplug_dev->devfn));
 
 	/* find exist matched reload dev */
 	reload = dfl_find_exist_reload(pcidev, ops);
@@ -374,7 +384,7 @@ dfl_image_reload_dev_register(const char *name, const struct dfl_image_reload_op
 		goto reuse;
 
 	/* create new reload dev */
-	reload = dfl_create_new_reload_dev(root, name, ops, priv);
+	reload = dfl_create_new_reload_dev(hotplug_dev, name, ops, priv);
 	if (reload)
 		return reload;
 
@@ -423,5 +433,5 @@ module_init(dfl_image_reload_init);
 module_exit(dfl_image_reload_exit);
 
 MODULE_DESCRIPTION("DFL FPGA Image Reload Driver");
-MODULE_AUTHOR("Intel Corporation");
+MODULE_AUTHOR("Tianfei Zhang <tianfei.zhang@intel.com>");
 MODULE_LICENSE("GPL");

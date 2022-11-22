@@ -62,6 +62,7 @@ struct dfl_image_reload_ops {
  * @node: node in list of device list.
  */
 struct dfl_image_reload {
+	struct list_head node;
 	struct hotplug_slot slot;
 	struct mutex lock; /* protect data structure contents */
 	bool is_registered;
@@ -69,7 +70,6 @@ struct dfl_image_reload {
 	const struct dfl_image_reload_ops *ops;
 	const char *name;
 	struct dfl_image_trigger trigger;
-	struct list_head node;
 };
 
 /* default wait seconds for image reload */
