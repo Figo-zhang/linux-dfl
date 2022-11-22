@@ -9,7 +9,8 @@
 #define _LINUX_DFL_IMAGE_RELOAD_H
 
 #include <linux/device.h>
-#include <linux/fpga/fpga-card.h>
+#include <linux/pci.h>
+#include <linux/pci_hotplug.h>
 
 struct dfl_image_reload;
 struct dfl_image_trigger;
@@ -42,21 +43,31 @@ struct dfl_image_trigger {
 };
 
 /**
+ * struct dfl_image_reload_ops - image reload specific operations
+ * @reload_prepare: Required: Prepare image reload, remove non-reserved devices
+ */
+struct dfl_image_reload_ops {
+        int (*reload_prepare)(struct dfl_image_reload *dfl_reload);
+};
+
+/**
  * struct dfl_image_reload - represent a dfl image reload instance
  *
+ * @slot: structure registered with the PCI hotplug core
  * @lock: mutex to protect reload data
  * @is_registered: register status
  * @priv: private data for dfl_image_reload
- * @card: fpga card instance
  * @ops: ops of this dfl_image_reload
  * @trigger: dfl_image_trigger instance
  * @node: node in list of device list.
  */
 struct dfl_image_reload {
+	struct hotplug_slot slot;
 	struct mutex lock; /* protect data structure contents */
 	bool is_registered;
 	void *priv;
-	struct fpga_card *card;
+	const struct dfl_image_reload_ops *ops;
+	const char *name;
 	struct dfl_image_trigger trigger;
 	struct list_head node;
 };
@@ -64,16 +75,18 @@ struct dfl_image_reload {
 /* default wait seconds for image reload */
 #define RELOAD_DEFAULT_WAIT_SECS  10
 
+#define SLOT_NAME_SIZE 10
+
+#define to_dfl_reload(d) container_of(d, struct dfl_image_reload, slot)
+
 struct dfl_image_reload *
 dfl_image_reload_dev_register(const char *name,
-			      const struct fpga_card_ops *ops, void *priv);
+			      const struct dfl_image_reload_ops *ops, void *priv);
 void dfl_image_reload_dev_unregister(struct dfl_image_reload *dfl_reload);
 struct dfl_image_trigger *
 dfl_image_reload_trigger_register(const struct dfl_image_trigger_ops *ops,
 				  struct device *parent, void *priv);
 void dfl_image_reload_trigger_unregister(struct dfl_image_trigger *trigger);
-
-extern const struct attribute_group *dfl_reload_attr_groups[];
 
 #endif
 
