@@ -213,17 +213,16 @@ static int dfl_hotplug_image_reload(struct hotplug_slot *slot, const char *buf)
 
 	printk("5 --------------------------\n");
 	/* 5. remove reserved devices under PF0 and PCI devices under remove port*/
-	//pci_stop_and_remove_bus_device_locked(remove_port);
 	dfl_reload_remove_hotplug_slot(remove_port);
-	//pci_stop_root_bus(remove_port->subordinate);
 
 	/* 6. Wait for FPGA/BMC reload done */
 	ssleep(10);
 
+	/* 7. poweroff the remove port */
 	pcie_capability_write_word(remove_port, PCI_EXP_SLTCTL, PCI_EXP_SLTCTL_PCC);
 	ssleep(1);
 
-	/* 7. enable pci link of remove port */
+	/* 8. enable pci link of remove port */
 	ret = dfl_reload_disable_pcie_link(remove_port, false);
 	if (ret) {
 		dev_err(&remove_port->dev, "enable pcie link of remove port failed\n");
@@ -235,9 +234,9 @@ static int dfl_hotplug_image_reload(struct hotplug_slot *slot, const char *buf)
 out:
 	mutex_unlock(&dfl_priv->lock);
 
-	/* 8. rescan the PCI bus*/
-	dfl_reload_rescan_pci_bus();
-	//dfl_configure_slot(remove_port);
+	/* 9. rescan the PCI bus*/
+	//dfl_reload_rescan_pci_bus();
+	dfl_configure_slot(remove_port);
 	
 	reload->state = IMAGE_RELOAD_DONE;
 
