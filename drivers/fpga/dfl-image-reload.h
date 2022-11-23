@@ -51,6 +51,18 @@ struct dfl_image_reload_ops {
 };
 
 /**
+ * enum image_reload_states - image reload states
+ * @IMAGE_RELOAD_UNKNOWN: can't determine state
+ * @IMAGE_RELOAD_RELOADING: doing the image reload
+ * @IMAGE_RELOAD_DONE: image reload done
+ */
+enum image_reload_states {
+	IMAGE_RELOAD_UNKNOWN,
+	IMAGE_RELOAD_RELOADING,
+	IMAGE_RELOAD_DONE,
+};
+
+/**
  * struct dfl_image_reload - represent a dfl image reload instance
  *
  * @slot: structure registered with the PCI hotplug core
@@ -58,6 +70,7 @@ struct dfl_image_reload_ops {
  * @is_registered: register status
  * @priv: private data for dfl_image_reload
  * @ops: ops of this dfl_image_reload
+ * @state: the status of image reload
  * @trigger: dfl_image_trigger instance
  * @node: node in list of device list.
  */
@@ -67,7 +80,9 @@ struct dfl_image_reload {
 	struct mutex lock; /* protect data structure contents */
 	bool is_registered;
 	void *priv;
+	struct pci_dev *hotplug_dev;
 	const struct dfl_image_reload_ops *ops;
+	enum image_reload_states state;
 	const char *name;
 	struct dfl_image_trigger trigger;
 };

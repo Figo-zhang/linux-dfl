@@ -14,6 +14,9 @@
 
 #include "dfl-image-reload.h"
 
+extern int pci_hp_add_bridge(struct pci_dev *dev);
+//extern bool pcie_wait_for_link(struct pci_dev *pdev, bool active);
+
 struct dfl_image_reload_priv {
 	struct list_head dev_list;
 	struct mutex lock; /* protect data structure contents */
@@ -94,6 +97,69 @@ static void dfl_reload_remove_sibling_pci_dev(struct pci_dev *pcidev)
 	}
 }
 
+static void dfl_reload_remove_hotplug_slot(struct pci_dev *hotplug_slot)
+{
+	struct pci_dev *dev, *temp;
+	struct pci_bus *parent = hotplug_slot->subordinate;
+	u16 command;
+
+	pci_lock_rescan_remove();
+	list_for_each_entry_safe_reverse(dev, temp, &parent->devices,
+					 bus_list) {
+		printk("%s: remove === %s\n", __func__, dev_name(&dev->dev));
+		pci_dev_get(dev);
+		pci_stop_and_remove_bus_device(dev);
+
+		pci_read_config_word(dev, PCI_COMMAND, &command);
+		command &= ~(PCI_COMMAND_MASTER | PCI_COMMAND_SERR);
+		command |= PCI_COMMAND_INTX_DISABLE;
+		pci_write_config_word(dev, PCI_COMMAND, command);
+		pci_dev_put(dev);
+	}
+
+	pci_unlock_rescan_remove();
+}
+
+static int dfl_configure_slot(struct pci_dev *hotplug_slot)
+{
+	struct pci_dev *dev;
+	struct pci_bus *parent = hotplug_slot->subordinate;
+	int num, ret = 0;
+
+		pci_lock_rescan_remove();
+
+	dev = pci_get_slot(parent, PCI_DEVFN(0, 0));
+	if (dev) {
+		/*
+		 * The device is already there. Either configured by the
+		 * boot firmware or a previous hotplug event.
+		 */
+		printk("Device %s already exists at %04x:%02x:00, skipping hot-add\n",
+			 pci_name(dev), pci_domain_nr(parent), parent->number);
+		pci_dev_put(dev);
+		ret = -EEXIST;
+		goto out;
+	}
+
+	num = pci_scan_slot(parent, PCI_DEVFN(0, 0));
+	if (num == 0) {
+		printk("No new device found\n");
+		ret = -ENODEV;
+		goto out;
+	}
+
+	for_each_pci_bridge(dev, parent)
+		pci_hp_add_bridge(dev);
+
+	pci_assign_unassigned_bridge_resources(hotplug_slot);
+	pcie_bus_configure_settings(parent);
+	pci_bus_add_devices(parent);
+
+ out:
+	pci_unlock_rescan_remove();
+	return ret;
+}
+
 static int dfl_hotplug_image_reload(struct hotplug_slot *slot, const char *buf)
 {
 	struct dfl_image_reload *reload = to_dfl_reload(slot);
@@ -114,6 +180,8 @@ static int dfl_hotplug_image_reload(struct hotplug_slot *slot, const char *buf)
 	remove_port = pcie_find_root_port(pcidev);
 	if (!remove_port)
 		return -EINVAL;
+
+	reload->state = IMAGE_RELOAD_RELOADING;
 
 	mutex_lock(&dfl_priv->lock);
 
@@ -143,11 +211,17 @@ static int dfl_hotplug_image_reload(struct hotplug_slot *slot, const char *buf)
 		goto out;
 	}
 
+	printk("5 --------------------------\n");
 	/* 5. remove reserved devices under PF0 and PCI devices under remove port*/
-	pci_stop_and_remove_bus_device_locked(remove_port);
+	//pci_stop_and_remove_bus_device_locked(remove_port);
+	dfl_reload_remove_hotplug_slot(remove_port);
+	//pci_stop_root_bus(remove_port->subordinate);
 
 	/* 6. Wait for FPGA/BMC reload done */
 	ssleep(10);
+
+	pcie_capability_write_word(remove_port, PCI_EXP_SLTCTL, PCI_EXP_SLTCTL_PCC);
+	ssleep(1);
 
 	/* 7. enable pci link of remove port */
 	ret = dfl_reload_disable_pcie_link(remove_port, false);
@@ -156,11 +230,16 @@ static int dfl_hotplug_image_reload(struct hotplug_slot *slot, const char *buf)
 		goto out;
 	}
 
+	msleep(1000);
+
 out:
 	mutex_unlock(&dfl_priv->lock);
 
 	/* 8. rescan the PCI bus*/
 	dfl_reload_rescan_pci_bus();
+	//dfl_configure_slot(remove_port);
+	
+	reload->state = IMAGE_RELOAD_DONE;
 
 	return ret;
 }
@@ -254,18 +333,13 @@ static void dfl_add_reload_dev(struct dfl_image_reload_priv *priv, struct dfl_im
 	mutex_unlock(&priv->lock);
 }
 
-static struct dfl_image_reload *
-dfl_create_new_reload_dev(struct pci_dev *pcidev, const char * name,
-		const struct dfl_image_reload_ops *ops, void *priv)
+static int
+dfl_create_new_reload_dev(struct dfl_image_reload *reload, struct pci_dev *pcidev, 
+		const char * name, const struct dfl_image_reload_ops *ops, void *priv)
 {
-	static struct dfl_image_reload *reload;
 	u32 slot_cap;
 	char slot_name[SLOT_NAME_SIZE];
 	int ret;
-
-	reload = kzalloc(sizeof(*reload), GFP_KERNEL);
-	if (!reload)
-		return ERR_PTR(-ENOMEM);
 
 	pcie_capability_read_dword(pcidev, PCI_EXP_SLTCAP, &slot_cap);
 	snprintf(slot_name, SLOT_NAME_SIZE, "%u", (slot_cap & PCI_EXP_SLTCAP_PSN) >> 19);
@@ -276,27 +350,28 @@ dfl_create_new_reload_dev(struct pci_dev *pcidev, const char * name,
 	ret = pci_hp_register(&reload->slot, pcidev->subordinate, PCI_SLOT(pcidev->devfn), slot_name); 
 	if (ret) {
 		pr_err("pci_hp_register failed with error %d\n", ret);
-		goto error_kfree;
+		return ret;
 	}
+
+	printk("%s ===== \n", __func__);
 
 	pr_info("Slot [%s] registered\n", hotplug_slot_name(&reload->slot));
 
 	mutex_init(&reload->lock);
 
 	mutex_lock(&reload->lock);
+	reload->hotplug_dev = pcidev;
 	reload->ops = ops;
 	reload->name = name;
 	reload->priv = priv;
 	reload->is_registered = true;
+	reload->state = IMAGE_RELOAD_UNKNOWN;
 	mutex_unlock(&reload->lock);
 
 	dfl_add_reload_dev(dfl_priv, reload);
 
-	return reload;
+	return 0;
 
-error_kfree:
-	kfree(reload);
-	return ERR_PTR(ret);
 }
 
 static struct dfl_image_reload *
@@ -311,6 +386,7 @@ dfl_find_exist_reload(struct pci_dev *pcidev, const struct dfl_image_reload_ops 
 			continue;
 		if (reload->priv == pcidev && reload->ops == ops) {
 			mutex_unlock(&dfl_priv->lock);
+			printk("%s ===== \n", __func__);
 			return reload;
 		}
 	}
@@ -320,16 +396,30 @@ dfl_find_exist_reload(struct pci_dev *pcidev, const struct dfl_image_reload_ops 
 	return NULL;
 }
 
-static struct dfl_image_reload *dfl_find_free_reload(void)
+static struct dfl_image_reload *dfl_find_free_reload(struct pci_dev *hotplug_dev)
 {
 	struct dfl_image_reload *reload, *tmp;
 
 	mutex_lock(&dfl_priv->lock);
 
 	list_for_each_entry_safe(reload, tmp, &dfl_priv->dev_list, node) {
-		if (!reload->is_registered) {
+		if (reload->is_registered)
+			continue;
+
+		/* reclaim unused reload */
+		if (reload->hotplug_dev == hotplug_dev) {
+			printk("%s reuse it %s \n", __func__, reload->name);
 			mutex_unlock(&dfl_priv->lock);
 			return reload;
+		}
+
+		/* free unused reload */
+		if (!reload->is_registered && reload->state == IMAGE_RELOAD_DONE) {
+			list_del(&reload->node);
+			printk("%s free it %s \n", __func__, reload->name);
+			pci_hp_deregister(&reload->slot);
+			kfree(reload);
+			continue;
 		}
 	}
 
@@ -346,6 +436,7 @@ static void dfl_image_reload_remove_devs(void)
 
 	list_for_each_entry_safe(reload, tmp, &dfl_priv->dev_list, node) {
 		list_del(&reload->node);
+		printk("%s ===== %s \n", __func__, reload->name);
 		pci_hp_deregister(&reload->slot);
 		kfree(reload);
 	}
@@ -358,6 +449,7 @@ dfl_image_reload_dev_register(const char *name, const struct dfl_image_reload_op
 {
 	struct pci_dev *pcidev, *hotplug_dev;
 	struct dfl_image_reload *reload;
+	int ret;
 
 	if (!ops || !priv)
 		return ERR_PTR(-EINVAL);
@@ -373,6 +465,8 @@ dfl_image_reload_dev_register(const char *name, const struct dfl_image_reload_op
 	if (!hotplug_dev)
 		return ERR_PTR(-EINVAL);
 
+	printk("%s hotplug_dev %lx pcidev %lx\n",__func__, (unsigned long)hotplug_dev, (unsigned long)pcidev);
+
 	dev_dbg(&pcidev->dev, "hotplug slot: %04x:%02x:%02x\n",
 			pci_domain_nr(hotplug_dev->bus), hotplug_dev->bus->number,
 			PCI_SLOT(hotplug_dev->devfn));
@@ -383,21 +477,32 @@ dfl_image_reload_dev_register(const char *name, const struct dfl_image_reload_op
 		return reload;
 
 	/* can it reuse the free reload dev? */
-	reload = dfl_find_free_reload();
-	if (reload)
+	reload = dfl_find_free_reload(hotplug_dev);
+	if (reload) {
+		printk("%s can reuse\n", __func__);
 		goto reuse;
+	}
+
+	printk("%s create a new one\n", __func__);
+	reload = kzalloc(sizeof(*reload), GFP_KERNEL);
+	if (!reload)
+		return ERR_PTR(-ENOMEM);
 
 	/* create new reload dev */
-	reload = dfl_create_new_reload_dev(hotplug_dev, name, ops, priv);
-	if (reload)
-		return reload;
+	ret = dfl_create_new_reload_dev(reload, hotplug_dev, name, ops, priv);
+	if (ret) {
+		kfree(reload);
+		return ERR_PTR(ret);
+	}
 
 reuse:
+	printk("%s reuse reload\n", __func__);
 	mutex_lock(&reload->lock);
 	reload->ops = ops;
 	reload->name = name;
 	reload->priv = priv;
 	reload->is_registered = true;
+	reload->state = IMAGE_RELOAD_UNKNOWN;
 	mutex_unlock(&reload->lock);
 
 	return reload;
