@@ -328,6 +328,7 @@ int pciehp_check_link_status(struct controller *ctrl)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(pciehp_check_link_status);
 
 static int __pciehp_link_set(struct controller *ctrl, bool enable)
 {
@@ -482,6 +483,7 @@ int pciehp_query_power_fault(struct controller *ctrl)
 	pcie_capability_read_word(pdev, PCI_EXP_SLTSTA, &slot_status);
 	return !!(slot_status & PCI_EXP_SLTSTA_PFD);
 }
+EXPORT_SYMBOL_GPL(pciehp_query_power_fault);
 
 int pciehp_set_raw_indicator_status(struct hotplug_slot *hotplug_slot,
 				    u8 status)
@@ -556,6 +558,7 @@ int pciehp_power_on_slot(struct controller *ctrl)
 
 	return retval;
 }
+EXPORT_SYMBOL_GPL(pciehp_power_on_slot);
 
 void pciehp_power_off_slot(struct controller *ctrl)
 {
@@ -564,6 +567,7 @@ void pciehp_power_off_slot(struct controller *ctrl)
 		 pci_pcie_cap(ctrl->pcie->port) + PCI_EXP_SLTCTL,
 		 PCI_EXP_SLTCTL_PWR_OFF);
 }
+EXPORT_SYMBOL_GPL(pciehp_power_off_slot);
 
 static void pciehp_ignore_dpc_link_change(struct controller *ctrl,
 					  struct pci_dev *pdev, int irq)
@@ -950,6 +954,7 @@ void pcie_shutdown_notification(struct controller *ctrl)
 		ctrl->notification_enabled = 0;
 	}
 }
+EXPORT_SYMBOL_GPL(pcie_shutdown_notification);
 
 static inline void dbg_ctrl(struct controller *ctrl)
 {
@@ -1066,12 +1071,14 @@ struct controller *pcie_init(struct pcie_device *dev)
 
 	return ctrl;
 }
+EXPORT_SYMBOL_GPL(pcie_init);
 
 void pciehp_release_ctrl(struct controller *ctrl)
 {
 	cancel_delayed_work_sync(&ctrl->button_work);
 	kfree(ctrl);
 }
+EXPORT_SYMBOL_GPL(pciehp_release_ctrl);
 
 static void quirk_cmd_compl(struct pci_dev *pdev)
 {

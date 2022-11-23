@@ -75,12 +75,9 @@ enum image_reload_states {
  * @node: node in list of device list.
  */
 struct dfl_image_reload {
-	struct list_head node;
-	struct hotplug_slot slot;
 	struct mutex lock; /* protect data structure contents */
 	bool is_registered;
 	void *priv;
-	struct pci_dev *hotplug_dev;
 	const struct dfl_image_reload_ops *ops;
 	enum image_reload_states state;
 	const char *name;

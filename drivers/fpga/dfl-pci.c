@@ -22,9 +22,9 @@
 #include <linux/stddef.h>
 #include <linux/errno.h>
 #include <linux/aer.h>
+#include <linux/fpga/dfl-image-reload.h>
 
 #include "dfl.h"
-#include "dfl-image-reload.h"
 
 #define DRV_VERSION	"0.8"
 #define DRV_NAME	"dfl-pci"
