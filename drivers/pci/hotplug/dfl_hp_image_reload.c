@@ -11,6 +11,7 @@
 #include <linux/fpga/dfl-image-reload.h>
 #include <linux/module.h>
 #include <linux/pci.h>
+#include <linux/pm_runtime.h>
 #include <linux/uaccess.h>
 
 #include "pciehp.h"
@@ -149,6 +150,7 @@ static int dfl_hotplug_image_reload(struct hotplug_slot *slot, const char *buf)
 
 	reload->state = IMAGE_RELOAD_RELOADING;
 
+	pm_runtime_get_sync(&ctrl->pcie->port->dev);
 	mutex_lock(&dfl_priv->lock);
 
 	/* 1. remove all PFs and VFs except the PF0*/
@@ -187,6 +189,7 @@ out:
 
 	/* 8. turn one and enumerate PCI devices below a hotplug bridge*/
 	dfl_hp_rescan_slot(ctrl);
+	pm_runtime_put(&ctrl->pcie->port->dev);
 	
 	if (ret)
 		reload->state = IMAGE_RELOAD_FAIL;
