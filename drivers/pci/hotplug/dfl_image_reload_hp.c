@@ -26,7 +26,7 @@ struct reload_hp_controller {
 	struct list_head node;
 	struct pcie_device *pcie;
 	struct controller ctrl;
-	struct pci_dev *hotplug_dev;
+	struct pci_dev *hotplug_bridge;
 	struct dfl_image_reload reload;
 };
 
@@ -245,7 +245,8 @@ static int dfl_hotplug_image_reload(struct hotplug_slot *slot, const char *buf)
 	struct reload_hp_controller *hpc = to_hpc(ctrl);
 	struct dfl_image_reload *reload = &hpc->reload;
 	struct dfl_image_trigger *trigger = &reload->trigger;
-	struct pci_dev *pcidev, *remove_port;;
+	struct pci_dev *hotplug_bridge = hpc->hotplug_bridge;
+	struct pci_dev *pcidev;
 	int ret = -EINVAL;
 
 	if (!reload->is_registered || !trigger->is_registered)
@@ -257,10 +258,6 @@ static int dfl_hotplug_image_reload(struct hotplug_slot *slot, const char *buf)
 	pcidev = reload->priv;
 	if (!pcidev)
 		return -EINVAL;
-
-	remove_port = pcie_find_root_port(pcidev);
-	 if (!remove_port)
-                return -EINVAL;
 
 	reload->state = IMAGE_RELOAD_RELOADING;
 
@@ -285,28 +282,28 @@ static int dfl_hotplug_image_reload(struct hotplug_slot *slot, const char *buf)
 		goto out;
 	}
 
-	dfl_reload_disable_pcie_link(remove_port, true);
+	dfl_reload_disable_pcie_link(hotplug_bridge, true);
 
 	/* 4. remove PCI devices below a hotplug bridge */
 	//pciehp_unconfigure_device(ctrl, true);
-	dfl_reload_remove_hotplug_slot(remove_port);
+	dfl_reload_remove_hotplug_slot(hotplug_bridge);
 
 	/* 6. Wait for FPGA/BMC reload done */
 	ssleep(10);
 
 	/* 7. turn off slot */
 	//set_slot_off(ctrl);
-	pcie_capability_write_word(remove_port, PCI_EXP_SLTCTL, PCI_EXP_SLTCTL_PCC);
+	pcie_capability_write_word(hotplug_bridge, PCI_EXP_SLTCTL, PCI_EXP_SLTCTL_PCC);
         ssleep(1);
 
 out:
 	mutex_unlock(&dfl_priv->lock);
 
 	//dfl_hotplug_rescan_slot(ctrl);
-	pcie_capability_write_word(remove_port, PCI_EXP_SLTCTL, PCI_EXP_SLTCTL_PWR_ON);
-	dfl_reload_disable_pcie_link(remove_port, false);
+	pcie_capability_write_word(hotplug_bridge, PCI_EXP_SLTCTL, PCI_EXP_SLTCTL_PWR_ON);
+	dfl_reload_disable_pcie_link(hotplug_bridge, false);
 	msleep(1000);
-	dfl_configure_slot(remove_port);
+	dfl_configure_slot(hotplug_bridge);
 	//dfl_reload_rescan_pci_bus();
 	
 	reload->state = IMAGE_RELOAD_DONE;
@@ -393,22 +390,22 @@ void dfl_image_reload_trigger_unregister(struct dfl_image_trigger *trigger)
 }
 EXPORT_SYMBOL_GPL(dfl_image_reload_trigger_unregister);
 
-static void dfl_add_reload_dev(struct dfl_image_reload_priv *priv, struct reload_hp_controller *hpc)
+static void dfl_hp_add_reload_dev(struct dfl_image_reload_priv *priv, struct reload_hp_controller *hpc)
 {
 	mutex_lock(&priv->lock);
 	list_add(&hpc->node, &priv->dev_list);
 	mutex_unlock(&priv->lock);
 }
 
-static int dfl_init_controller(struct controller *ctrl, struct pcie_device *dev)
+static int dfl_hp_init_controller(struct controller *ctrl, struct pcie_device *dev)
 {
-	u32 slot_cap, slot_cap2, link_cap;
-	struct pci_dev *pdev = dev->port;
-	struct pci_bus *subordinate = pdev->subordinate;
+	u32 slot_cap;
+	struct pci_dev *hotplug_bridge = dev->port;
+	struct pci_bus *subordinate = hotplug_bridge->subordinate;
 
 	ctrl->pcie = dev;
 
-	pcie_capability_read_dword(pdev, PCI_EXP_SLTCAP, &slot_cap);
+	pcie_capability_read_dword(hotplug_bridge, PCI_EXP_SLTCAP, &slot_cap);
 
 	/* set the Power Controller Present */
 	slot_cap |= PCI_EXP_SLTCAP_PCP;
@@ -428,21 +425,21 @@ static const struct hotplug_slot_ops dfl_hotplug_slot_ops = {
         .image_reload           = dfl_hotplug_image_reload
 };
 
-static int dfl_init_slot(struct controller *ctrl)
+static int dfl_hp_init_slot(struct controller *ctrl)
 {
 	char name[SLOT_NAME_SIZE];
-	struct pci_dev *pcidev = ctrl->pcie->port;
+	struct pci_dev *hotplug_bridge = ctrl->pcie->port;
 	int ret;
 
-	printk("%s: pcidev %lx\n", __func__, (unsigned long)pcidev);
+	printk("%s: pcidev %lx\n", __func__, (unsigned long)hotplug_bridge);
 
 	snprintf(name, SLOT_NAME_SIZE, "%u", (ctrl->slot_cap & PCI_EXP_SLTCAP_PSN) >> 19);
 	
 	ctrl->hotplug_slot.ops = &dfl_hotplug_slot_ops;
 
 	 /* Register PCI slot */
-        ret = pci_hp_register(&ctrl->hotplug_slot, pcidev->subordinate,
-			PCI_SLOT(pcidev->devfn), name);
+        ret = pci_hp_register(&ctrl->hotplug_slot, hotplug_bridge->subordinate,
+			PCI_SLOT(hotplug_bridge->devfn), name);
         if (ret) {
                 pr_err("pci_hp_register failed with error %d\n", ret);
                 return ret;
@@ -454,7 +451,7 @@ static int dfl_init_slot(struct controller *ctrl)
 }
 
 static int
-dfl_create_new_reload_dev(struct reload_hp_controller *hpc, struct pci_dev *pcidev, 
+dfl_hp_create_new_hpc(struct reload_hp_controller *hpc, struct pci_dev *hotplug_bridge, 
 		const char * name, const struct dfl_image_reload_ops *ops, void *priv)
 {
 	struct dfl_image_reload *reload = &hpc->reload;
@@ -466,27 +463,13 @@ dfl_create_new_reload_dev(struct reload_hp_controller *hpc, struct pci_dev *pcid
 	if (!pcie)
 		return -ENOMEM;
 
-	pcie->port = pcidev;
-	hpc->hotplug_dev = pcidev;
+	pcie->port = hotplug_bridge;
+	hpc->hotplug_bridge = hotplug_bridge;
 	hpc->pcie = pcie;
 
-#if 0
-	ctrl = pcie_init(pcie);
-	if (!ctrl) {
-		pci_err(pcidev, "Controller initialization failed\n");
-		ret = -ENODEV;
-		goto free_pcie;
-	}
-	
-	/* set the Power Controller Present */
-	ctrl->slot_cap |= PCI_EXP_SLTCAP_PCP;
+	dfl_hp_init_controller(&hpc->ctrl, pcie);
 
-	memcpy(&hpc->ctrl, ctrl, sizeof(*ctrl));
-	kfree(ctrl);
-#endif
-	dfl_init_controller(&hpc->ctrl, pcie);
-
-	ret = dfl_init_slot(&hpc->ctrl);
+	ret = dfl_hp_init_slot(&hpc->ctrl);
 	if (ret) {
 		if (ret == -EBUSY)
 			ctrl_warn(ctrl, "Slot already registered by another hotplug driver\n");
@@ -497,7 +480,7 @@ dfl_create_new_reload_dev(struct reload_hp_controller *hpc, struct pci_dev *pcid
 
 	mutex_init(&reload->lock);
 
-	dfl_add_reload_dev(dfl_priv, hpc);
+	dfl_hp_add_reload_dev(dfl_priv, hpc);
 
 	return ret;
 
@@ -507,7 +490,7 @@ free_pcie:
 }
 
 static struct reload_hp_controller *
-dfl_find_exist_reload(struct pci_dev *hotplug_dev, 
+dfl_hp_find_exist_hpc(struct pci_dev *hotplug_bridge, 
 		struct pci_dev *pcidev, const struct dfl_image_reload_ops *ops)
 {
 	struct reload_hp_controller *hpc, *tmp;
@@ -517,7 +500,7 @@ dfl_find_exist_reload(struct pci_dev *hotplug_dev,
 	list_for_each_entry_safe(hpc, tmp, &dfl_priv->dev_list, node) {
 		if (!hpc->reload.is_registered)
 			continue;
-		if ((hpc->hotplug_dev == hotplug_dev)
+		if ((hpc->hotplug_bridge == hotplug_bridge)
 				&& (hpc->reload.priv == pcidev)
 				&& (hpc->reload.ops == ops)) {
 			mutex_unlock(&dfl_priv->lock);
@@ -531,25 +514,25 @@ dfl_find_exist_reload(struct pci_dev *hotplug_dev,
 	return NULL;
 }
 
-static struct reload_hp_controller *dfl_find_free_reload(struct pci_dev *hotplug_dev)
+static struct reload_hp_controller *dfl_hp_reclaim_hpc(struct pci_dev *hotplug_bridge)
 {
 	struct reload_hp_controller *hpc, *tmp;
 
 	mutex_lock(&dfl_priv->lock);
 
 	list_for_each_entry_safe(hpc, tmp, &dfl_priv->dev_list, node) {
-		/* skip using hc */
+		/* skip using hpc */
 		if (hpc->reload.is_registered)
 			continue;
 
-		/* reclaim unused hc, will reuse it later */
-		if (hpc->hotplug_dev == hotplug_dev) {
+		/* reclaim unused hpc, will reuse it later */
+		if (hpc->hotplug_bridge == hotplug_bridge) {
 			printk("%s reuse it %s \n", __func__, hpc->reload.name);
 			mutex_unlock(&dfl_priv->lock);
 			return hpc;
 		}
 
-		/* free unused hc */
+		/* free unused hpc */
 		if (hpc->reload.is_registered && hpc->reload.state == IMAGE_RELOAD_DONE) {
 			list_del(&hpc->node);
 			printk("%s free it %s \n", __func__, hpc->reload.name);
@@ -585,7 +568,7 @@ static void dfl_image_reload_remove_devs(void)
 struct dfl_image_reload *
 dfl_image_reload_dev_register(const char *name, const struct dfl_image_reload_ops *ops, void *priv)
 {
-	struct pci_dev *pcidev, *hotplug_dev;
+	struct pci_dev *pcidev, *hotplug_bridge;
 	struct reload_hp_controller *hpc;
 	struct dfl_image_reload *reload;
 	int ret;
@@ -599,24 +582,24 @@ dfl_image_reload_dev_register(const char *name, const struct dfl_image_reload_op
 			pci_domain_nr(pcidev->bus), pcidev->bus->number,
 			PCI_SLOT(pcidev->devfn), PCI_FUNC(pcidev->devfn));
 
-	/* For N3000, the hotplug port was on the root port of PF0 */
-	hotplug_dev = pcie_find_root_port(pcidev);
-	if (!hotplug_dev)
+	/* For N3000, the hotplug bridge was on the root port of PF0 */
+	hotplug_bridge = pcie_find_root_port(pcidev);
+	if (!hotplug_bridge)
 		return ERR_PTR(-EINVAL);
 
-	printk("%s hotplug_dev %lx pcidev %lx\n",__func__, (unsigned long)hotplug_dev, (unsigned long)pcidev);
+	printk("%s hotplug_dev %lx pcidev %lx\n",__func__, (unsigned long)hotplug_bridge, (unsigned long)pcidev);
 
-	dev_dbg(&pcidev->dev, "hotplug slot: %04x:%02x:%02x\n",
-			pci_domain_nr(hotplug_dev->bus), hotplug_dev->bus->number,
-			PCI_SLOT(hotplug_dev->devfn));
+	dev_dbg(&pcidev->dev, "hotplug bridge: %04x:%02x:%02x\n",
+			pci_domain_nr(hotplug_bridge->bus), hotplug_bridge->bus->number,
+			PCI_SLOT(hotplug_bridge->devfn));
 
 	/* find exist matched hotplug controller */
-	hpc = dfl_find_exist_reload(hotplug_dev, pcidev, ops);
+	hpc = dfl_hp_find_exist_hpc(hotplug_bridge, pcidev, ops);
 	if (hpc)
 		return &hpc->reload;
 
 	/* can it reuse the free hotplug controller? */
-	hpc = dfl_find_free_reload(hotplug_dev);
+	hpc = dfl_hp_reclaim_hpc(hotplug_bridge);
 	if (hpc) {
 		printk("%s can reuse\n", __func__);
 		goto reuse;
@@ -628,7 +611,7 @@ dfl_image_reload_dev_register(const char *name, const struct dfl_image_reload_op
 		return ERR_PTR(-ENOMEM);
 
 	/* create new reload dev */
-	ret = dfl_create_new_reload_dev(hpc, hotplug_dev, name, ops, priv);
+	ret = dfl_hp_create_new_hpc(hpc, hotplug_bridge, name, ops, priv);
 	if (ret) {
 		kfree(hpc);
 		return ERR_PTR(ret);
@@ -680,6 +663,6 @@ static void __exit dfl_image_reload_exit(void)
 module_init(dfl_image_reload_init);
 module_exit(dfl_image_reload_exit);
 
-MODULE_DESCRIPTION("DFL FPGA Image Reload Driver");
+MODULE_DESCRIPTION("DFL FPGA Image Reload Hotplug Driver");
 MODULE_AUTHOR("Tianfei Zhang <tianfei.zhang@intel.com>");
 MODULE_LICENSE("GPL");
