@@ -201,9 +201,11 @@ static int dfl_hotplug_image_reload(struct hotplug_slot *slot, const char *buf)
 		goto out;
 	}
 
-	dfl_reload_disable_pcie_link(hotplug_bridge, true);
+	/* 4. disable link of hotplug bridge */
+	//dfl_reload_disable_pcie_link(hotplug_bridge, true);
+	pciehp_link_disable(ctrl);
 
-	/* 4. remove PCI devices below a hotplug bridge */
+	/* 5. remove PCI devices below hotplug bridge */
 	pciehp_unconfigure_device(ctrl, true);
 
 	/* 6. Wait for FPGA/BMC reload done */
