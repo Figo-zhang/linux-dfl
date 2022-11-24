@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * Intel DFL FPGA Image Reload Driver
+ * Intel DFL FPGA Image Reload Hotplug Driver
  *
  * Copyright (C) 2022 Intel Corporation
  *
@@ -8,16 +8,16 @@
 #include <linux/delay.h>
 #include <linux/dfl.h>
 #include <linux/fpga-dfl.h>
+#include <linux/fpga/dfl-image-reload.h>
 #include <linux/module.h>
 #include <linux/pci.h>
 #include <linux/uaccess.h>
-#include <linux/fpga/dfl-image-reload.h>
 
 #include "pciehp.h"
 
 extern int pci_hp_add_bridge(struct pci_dev *dev);
 
-struct dfl_image_reload_priv {
+struct dfl_hp_image_reload_priv {
 	struct list_head dev_list;
 	struct mutex lock; /* protect data structure contents */
 };
@@ -30,7 +30,7 @@ struct dfl_hp_controller {
 	struct dfl_image_reload reload;
 };
 
-static struct dfl_image_reload_priv *dfl_priv;
+static struct dfl_hp_image_reload_priv *dfl_priv;
 
 #define to_dfl_trigger_reload(d) container_of(d, struct dfl_image_reload, trigger)
 #define to_hpc(d) container_of(d, struct dfl_hp_controller, ctrl)
@@ -56,7 +56,7 @@ static ssize_t dfl_hotplug_available_images(struct hotplug_slot *slot, char *buf
 	return count;
 }
 
-static void dfl_reload_remove_sibling_pci_dev(struct pci_dev *pcidev)
+static void dfl_hp_remove_sibling_pci_dev(struct pci_dev *pcidev)
 {
 	struct pci_bus *bus = pcidev->bus;
 	struct pci_dev *sibling, *tmp;
@@ -92,7 +92,6 @@ static int dfl_hp_rescan_slot(struct controller *ctrl)
 	struct pci_bus *parent = ctrl->pcie->port->subordinate;
 
 	if (POWER_CTRL(ctrl)) {
-		printk("%s want to power on slot\n", __func__);
 		/* Power on slot */
 		retval = pciehp_power_on_slot(ctrl);
 		if (retval)
@@ -129,42 +128,12 @@ err_exit:
 	return retval;
 }
 
-static int dfl_reload_disable_pcie_link(struct pci_dev *root, bool disable)
-{
-        u16 linkctl;
-        int ret;
-
-        if (!root)
-                return -EINVAL;
-
-        ret = pcie_capability_read_word(root, PCI_EXP_LNKCTL, &linkctl);
-        if (ret)
-                return -EINVAL;
-
-        if (disable) {
-                if (linkctl & PCI_EXP_LNKCTL_LD)
-                        goto out;
-                linkctl |= PCI_EXP_LNKCTL_LD;
-        } else {
-                if (!(linkctl & PCI_EXP_LNKCTL_LD))
-                        goto out;
-                linkctl &= ~PCI_EXP_LNKCTL_LD;
-        }
-
-        ret = pcie_capability_write_word(root, PCI_EXP_LNKCTL, linkctl);
-        if (ret)
-                return ret;
-out:
-        return 0;
-}
-
 static int dfl_hotplug_image_reload(struct hotplug_slot *slot, const char *buf)
 {
 	struct controller *ctrl = to_ctrl(slot);
 	struct dfl_hp_controller *hpc = to_hpc(ctrl);
 	struct dfl_image_reload *reload = &hpc->reload;
 	struct dfl_image_trigger *trigger = &reload->trigger;
-	struct pci_dev *hotplug_bridge = hpc->hotplug_bridge;
 	struct pci_dev *pcidev;
 	int ret = -EINVAL;
 
@@ -183,7 +152,7 @@ static int dfl_hotplug_image_reload(struct hotplug_slot *slot, const char *buf)
 	mutex_lock(&dfl_priv->lock);
 
 	/* 1. remove all PFs and VFs except the PF0*/
-	dfl_reload_remove_sibling_pci_dev(pcidev);
+	dfl_hp_remove_sibling_pci_dev(pcidev);
 
 	/* 2. remove all non-reserved devices */
 	if (reload->ops->reload_prepare) {
@@ -202,7 +171,6 @@ static int dfl_hotplug_image_reload(struct hotplug_slot *slot, const char *buf)
 	}
 
 	/* 4. disable link of hotplug bridge */
-	//dfl_reload_disable_pcie_link(hotplug_bridge, true);
 	pciehp_link_disable(ctrl);
 
 	/* 5. remove PCI devices below hotplug bridge */
@@ -217,10 +185,13 @@ static int dfl_hotplug_image_reload(struct hotplug_slot *slot, const char *buf)
 out:
 	mutex_unlock(&dfl_priv->lock);
 
-	/* turn one and enumerate PCI devices below a hotplug bridge*/
+	/* 8. turn one and enumerate PCI devices below a hotplug bridge*/
 	dfl_hp_rescan_slot(ctrl);
 	
-	reload->state = IMAGE_RELOAD_DONE;
+	if (ret)
+		reload->state = IMAGE_RELOAD_FAIL;
+	else
+		reload->state = IMAGE_RELOAD_DONE;
 
 	return ret;
 }
@@ -304,7 +275,7 @@ void dfl_image_reload_trigger_unregister(struct dfl_image_trigger *trigger)
 }
 EXPORT_SYMBOL_GPL(dfl_image_reload_trigger_unregister);
 
-static void dfl_hp_add_reload_dev(struct dfl_image_reload_priv *priv, struct dfl_hp_controller *hpc)
+static void dfl_hp_add_reload_dev(struct dfl_hp_image_reload_priv *priv, struct dfl_hp_controller *hpc)
 {
 	mutex_lock(&priv->lock);
 	list_add(&hpc->node, &priv->dev_list);
@@ -551,9 +522,9 @@ void dfl_image_reload_dev_unregister(struct dfl_image_reload *reload)
 }
 EXPORT_SYMBOL_GPL(dfl_image_reload_dev_unregister);
 
-static int __init dfl_image_reload_init(void)
+static int __init dfl_hp_image_reload_init(void)
 {
-	struct dfl_image_reload_priv *priv;
+	struct dfl_hp_image_reload_priv *priv;
 
 	priv = kzalloc(sizeof(*priv), GFP_KERNEL);
 	if (!priv)
@@ -566,14 +537,14 @@ static int __init dfl_image_reload_init(void)
 	return 0;
 }
 
-static void __exit dfl_image_reload_exit(void)
+static void __exit dfl_hp_image_reload_exit(void)
 {
 	dfl_image_reload_remove_devs();
 	kfree(dfl_priv);
 }
 
-module_init(dfl_image_reload_init);
-module_exit(dfl_image_reload_exit);
+module_init(dfl_hp_image_reload_init);
+module_exit(dfl_hp_image_reload_exit);
 
 MODULE_DESCRIPTION("DFL FPGA Image Reload Hotplug Driver");
 MODULE_AUTHOR("Tianfei Zhang <tianfei.zhang@intel.com>");

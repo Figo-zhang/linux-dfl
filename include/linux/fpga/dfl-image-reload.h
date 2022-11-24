@@ -55,11 +55,13 @@ struct dfl_image_reload_ops {
  * @IMAGE_RELOAD_UNKNOWN: can't determine state
  * @IMAGE_RELOAD_RELOADING: doing the image reload
  * @IMAGE_RELOAD_DONE: image reload done
+ * @IMAGE_RELOAD_FAIL: image reload failure
  */
 enum image_reload_states {
 	IMAGE_RELOAD_UNKNOWN,
 	IMAGE_RELOAD_RELOADING,
 	IMAGE_RELOAD_DONE,
+	IMAGE_RELOAD_FAIL,
 };
 
 /**
