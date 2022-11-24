@@ -430,10 +430,11 @@ static const struct hotplug_slot_ops dfl_hotplug_slot_ops = {
 
 static int dfl_init_slot(struct controller *ctrl)
 {
-	struct hotplug_slot_ops *ops;
 	char name[SLOT_NAME_SIZE];
 	struct pci_dev *pcidev = ctrl->pcie->port;
 	int ret;
+
+	printk("%s: pcidev %lx\n", __func__, (unsigned long)pcidev);
 
 	snprintf(name, SLOT_NAME_SIZE, "%u", (ctrl->slot_cap & PCI_EXP_SLTCAP_PSN) >> 19);
 	
@@ -466,6 +467,7 @@ dfl_create_new_reload_dev(struct reload_hp_controller *hpc, struct pci_dev *pcid
 		return -ENOMEM;
 
 	pcie->port = pcidev;
+	hpc->hotplug_dev = pcidev;
 	hpc->pcie = pcie;
 
 #if 0
@@ -495,14 +497,6 @@ dfl_create_new_reload_dev(struct reload_hp_controller *hpc, struct pci_dev *pcid
 
 	mutex_init(&reload->lock);
 
-	mutex_lock(&reload->lock);
-	reload->ops = ops;
-	reload->name = name;
-	reload->priv = priv;
-	reload->is_registered = true;
-	reload->state = IMAGE_RELOAD_UNKNOWN;
-	mutex_unlock(&reload->lock);
-
 	dfl_add_reload_dev(dfl_priv, hpc);
 
 	return ret;
@@ -513,7 +507,8 @@ free_pcie:
 }
 
 static struct reload_hp_controller *
-dfl_find_exist_reload(struct pci_dev *pcidev, const struct dfl_image_reload_ops *ops)
+dfl_find_exist_reload(struct pci_dev *hotplug_dev, 
+		struct pci_dev *pcidev, const struct dfl_image_reload_ops *ops)
 {
 	struct reload_hp_controller *hpc, *tmp;
 
@@ -522,9 +517,11 @@ dfl_find_exist_reload(struct pci_dev *pcidev, const struct dfl_image_reload_ops 
 	list_for_each_entry_safe(hpc, tmp, &dfl_priv->dev_list, node) {
 		if (!hpc->reload.is_registered)
 			continue;
-		if (hpc->reload.priv == pcidev && hpc->reload.ops == ops) {
+		if ((hpc->hotplug_dev == hotplug_dev)
+				&& (hpc->reload.priv == pcidev)
+				&& (hpc->reload.ops == ops)) {
 			mutex_unlock(&dfl_priv->lock);
-			printk("%s ===== \n", __func__);
+			printk("%s found existing \n", __func__);
 			return hpc;
 		}
 	}
@@ -541,26 +538,25 @@ static struct reload_hp_controller *dfl_find_free_reload(struct pci_dev *hotplug
 	mutex_lock(&dfl_priv->lock);
 
 	list_for_each_entry_safe(hpc, tmp, &dfl_priv->dev_list, node) {
+		/* skip using hc */
 		if (hpc->reload.is_registered)
 			continue;
 
-		/* reclaim unused reload */
+		/* reclaim unused hc, will reuse it later */
 		if (hpc->hotplug_dev == hotplug_dev) {
 			printk("%s reuse it %s \n", __func__, hpc->reload.name);
 			mutex_unlock(&dfl_priv->lock);
 			return hpc;
 		}
 
-#if 0
-		/* free unused reload */
+		/* free unused hc */
 		if (hpc->reload.is_registered && hpc->reload.state == IMAGE_RELOAD_DONE) {
 			list_del(&hpc->node);
 			printk("%s free it %s \n", __func__, hpc->reload.name);
-			pci_hp_deregister(&hpc->ctrl.slot);
+			pci_hp_deregister(&hpc->ctrl.hotplug_slot);
 			kfree(hpc);
 			continue;
 		}
-#endif
 	}
 
 	mutex_unlock(&dfl_priv->lock);
@@ -615,7 +611,7 @@ dfl_image_reload_dev_register(const char *name, const struct dfl_image_reload_op
 			PCI_SLOT(hotplug_dev->devfn));
 
 	/* find exist matched hotplug controller */
-	hpc = dfl_find_exist_reload(pcidev, ops);
+	hpc = dfl_find_exist_reload(hotplug_dev, pcidev, ops);
 	if (hpc)
 		return &hpc->reload;
 
@@ -639,7 +635,7 @@ dfl_image_reload_dev_register(const char *name, const struct dfl_image_reload_op
 	}
 
 reuse:
-	printk("%s reuse reload\n", __func__);
+	printk("%s re-init hc\n", __func__);
 	mutex_lock(&hpc->reload.lock);
 	hpc->reload.ops = ops;
 	hpc->reload.name = name;
