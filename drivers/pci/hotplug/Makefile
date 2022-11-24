@@ -20,7 +20,7 @@ obj-$(CONFIG_HOTPLUG_PCI_RPA)		+= rpaphp.o
 obj-$(CONFIG_HOTPLUG_PCI_RPA_DLPAR)	+= rpadlpar_io.o
 obj-$(CONFIG_HOTPLUG_PCI_ACPI)		+= acpiphp.o
 obj-$(CONFIG_HOTPLUG_PCI_S390)		+= s390_pci_hpc.o
-obj-$(CONFIG_HOTPLUG_PCI_DFL_RELOAD)	+= dfl_image_reload_hp.o
+obj-$(CONFIG_HOTPLUG_PCI_DFL_RELOAD)	+= dfl_hp_image_reload.o
 
 # acpiphp_ibm extends acpiphp, so should be linked afterwards.
 

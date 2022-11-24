@@ -159,7 +159,7 @@ config HOTPLUG_PCI_S390
 	  When in doubt, say Y.
 
 config HOTPLUG_PCI_DFL_RELOAD
-	tristate "FPGA DFL image reload PCI hotplug Driver"
+	tristate "FPGA DFL image reload hotplug Driver"
 	depends on HOTPLUG_PCI_PCIE && FPGA_DFL_PCI && FPGA_M10_BMC_SEC_UPDATE
 	help
 	  Select this option to enable FPGA image reload hotplug for PCIe-based
