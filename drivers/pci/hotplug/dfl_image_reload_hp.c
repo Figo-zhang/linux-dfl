@@ -69,7 +69,7 @@ static void dfl_reload_remove_sibling_pci_dev(struct pci_dev *pcidev)
 	}
 }
 
-static void set_slot_off(struct controller *ctrl)
+static void dfl_hp_set_slot_off(struct controller *ctrl)
 {
 	/*
 	 * Turn off slot
@@ -86,7 +86,7 @@ static void set_slot_off(struct controller *ctrl)
 	}
 }
 
-static int dfl_hotplug_rescan_slot(struct controller *ctrl)
+static int dfl_hp_rescan_slot(struct controller *ctrl)
 {
 	int retval = 0;
 	struct pci_bus *parent = ctrl->pcie->port->subordinate;
@@ -102,9 +102,9 @@ static int dfl_hotplug_rescan_slot(struct controller *ctrl)
 	}
 
 	/* Check link training status */
-	//retval = pciehp_check_link_status(ctrl);
-	//if (retval)
-	//	goto err_exit;
+	retval = pciehp_check_link_status(ctrl);
+	if (retval)
+		goto err_exit;
 
 	/* Check for a power fault */
 	if (ctrl->power_fault_detected || pciehp_query_power_fault(ctrl)) {
@@ -125,16 +125,8 @@ static int dfl_hotplug_rescan_slot(struct controller *ctrl)
 	return 0;
 
 err_exit:
-	set_slot_off(ctrl);
+	dfl_hp_set_slot_off(ctrl);
 	return retval;
-}
-
-static void cleanup_slot(struct controller *ctrl)
-{
-	struct hotplug_slot *hotplug_slot = &ctrl->hotplug_slot;
-
-	pci_hp_destroy(hotplug_slot);
-	kfree(hotplug_slot->ops);
 }
 
 static int dfl_reload_disable_pcie_link(struct pci_dev *root, bool disable)
@@ -164,79 +156,6 @@ static int dfl_reload_disable_pcie_link(struct pci_dev *root, bool disable)
                 return ret;
 out:
         return 0;
-}
-
-static void dfl_reload_rescan_pci_bus(void)
-{
-        struct pci_bus *b = NULL;
-
-        pci_lock_rescan_remove();
-        while ((b = pci_find_next_bus(b)) != NULL)
-                pci_rescan_bus(b);
-        pci_unlock_rescan_remove();
-}
-
-static void dfl_reload_remove_hotplug_slot(struct pci_dev *hotplug_slot)
-{
-        struct pci_dev *dev, *temp;
-        struct pci_bus *parent = hotplug_slot->subordinate;
-        u16 command;
-
-        pci_lock_rescan_remove();
-        list_for_each_entry_safe_reverse(dev, temp, &parent->devices,
-                                         bus_list) {
-                printk("%s: remove === %s\n", __func__, dev_name(&dev->dev));
-                pci_dev_get(dev);
-                pci_stop_and_remove_bus_device(dev);
-
-                pci_read_config_word(dev, PCI_COMMAND, &command);
-                command &= ~(PCI_COMMAND_MASTER | PCI_COMMAND_SERR);
-                command |= PCI_COMMAND_INTX_DISABLE;
-                pci_write_config_word(dev, PCI_COMMAND, command);
-                pci_dev_put(dev);
-        }
-
-        pci_unlock_rescan_remove();
-}
-
-static int dfl_configure_slot(struct pci_dev *hotplug_slot)
-{
-        struct pci_dev *dev;
-        struct pci_bus *parent = hotplug_slot->subordinate;
-        int num, ret = 0;
-
-                pci_lock_rescan_remove();
-
-        dev = pci_get_slot(parent, PCI_DEVFN(0, 0));
-        if (dev) {
-                /*
-                 * The device is already there. Either configured by the
-                 * boot firmware or a previous hotplug event.
-                 */
-                printk("Device %s already exists at %04x:%02x:00, skipping hot-add\n",
-                         pci_name(dev), pci_domain_nr(parent), parent->number);
-                pci_dev_put(dev);
-                ret = -EEXIST;
-                goto out;
-        }
-
-        num = pci_scan_slot(parent, PCI_DEVFN(0, 0));
-        if (num == 0) {
-                printk("No new device found\n");
-                ret = -ENODEV;
-                goto out;
-        }
-
-        for_each_pci_bridge(dev, parent)
-                pci_hp_add_bridge(dev);
-
-        pci_assign_unassigned_bridge_resources(hotplug_slot);
-        pcie_bus_configure_settings(parent);
-        pci_bus_add_devices(parent);
-
- out:
-        pci_unlock_rescan_remove();
-        return ret;
 }
 
 static int dfl_hotplug_image_reload(struct hotplug_slot *slot, const char *buf)
@@ -285,26 +204,19 @@ static int dfl_hotplug_image_reload(struct hotplug_slot *slot, const char *buf)
 	dfl_reload_disable_pcie_link(hotplug_bridge, true);
 
 	/* 4. remove PCI devices below a hotplug bridge */
-	//pciehp_unconfigure_device(ctrl, true);
-	dfl_reload_remove_hotplug_slot(hotplug_bridge);
+	pciehp_unconfigure_device(ctrl, true);
 
 	/* 6. Wait for FPGA/BMC reload done */
 	ssleep(10);
 
 	/* 7. turn off slot */
-	//set_slot_off(ctrl);
-	pcie_capability_write_word(hotplug_bridge, PCI_EXP_SLTCTL, PCI_EXP_SLTCTL_PCC);
-        ssleep(1);
+	dfl_hp_set_slot_off(ctrl);
 
 out:
 	mutex_unlock(&dfl_priv->lock);
 
-	//dfl_hotplug_rescan_slot(ctrl);
-	pcie_capability_write_word(hotplug_bridge, PCI_EXP_SLTCTL, PCI_EXP_SLTCTL_PWR_ON);
-	dfl_reload_disable_pcie_link(hotplug_bridge, false);
-	msleep(1000);
-	dfl_configure_slot(hotplug_bridge);
-	//dfl_reload_rescan_pci_bus();
+	/* turn one and enumerate PCI devices below a hotplug bridge*/
+	dfl_hp_rescan_slot(ctrl);
 	
 	reload->state = IMAGE_RELOAD_DONE;
 
@@ -401,7 +313,6 @@ static int dfl_hp_init_controller(struct controller *ctrl, struct pcie_device *d
 {
 	u32 slot_cap;
 	struct pci_dev *hotplug_bridge = dev->port;
-	struct pci_bus *subordinate = hotplug_bridge->subordinate;
 
 	ctrl->pcie = dev;
 
@@ -570,7 +481,6 @@ dfl_image_reload_dev_register(const char *name, const struct dfl_image_reload_op
 {
 	struct pci_dev *pcidev, *hotplug_bridge;
 	struct dfl_hp_controller *hpc;
-	struct dfl_image_reload *reload;
 	int ret;
 
 	if (!ops || !priv)
