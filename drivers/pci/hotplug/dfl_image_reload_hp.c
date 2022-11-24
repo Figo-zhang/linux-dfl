@@ -22,7 +22,7 @@ struct dfl_image_reload_priv {
 	struct mutex lock; /* protect data structure contents */
 };
 
-struct reload_hp_controller {
+struct dfl_hp_controller {
 	struct list_head node;
 	struct pcie_device *pcie;
 	struct controller ctrl;
@@ -33,12 +33,12 @@ struct reload_hp_controller {
 static struct dfl_image_reload_priv *dfl_priv;
 
 #define to_dfl_trigger_reload(d) container_of(d, struct dfl_image_reload, trigger)
-#define to_hpc(d) container_of(d, struct reload_hp_controller, ctrl)
+#define to_hpc(d) container_of(d, struct dfl_hp_controller, ctrl)
 
 static ssize_t dfl_hotplug_available_images(struct hotplug_slot *slot, char *buf)
 {
 	struct controller *ctrl = to_ctrl(slot);
-	struct reload_hp_controller *hpc = to_hpc(ctrl);
+	struct dfl_hp_controller *hpc = to_hpc(ctrl);
 	struct dfl_image_reload *reload = &hpc->reload;
 	struct dfl_image_trigger *trigger = &reload->trigger;
 	ssize_t count;
@@ -242,7 +242,7 @@ static int dfl_configure_slot(struct pci_dev *hotplug_slot)
 static int dfl_hotplug_image_reload(struct hotplug_slot *slot, const char *buf)
 {
 	struct controller *ctrl = to_ctrl(slot);
-	struct reload_hp_controller *hpc = to_hpc(ctrl);
+	struct dfl_hp_controller *hpc = to_hpc(ctrl);
 	struct dfl_image_reload *reload = &hpc->reload;
 	struct dfl_image_trigger *trigger = &reload->trigger;
 	struct pci_dev *hotplug_bridge = hpc->hotplug_bridge;
@@ -333,7 +333,7 @@ static bool dfl_match_trigger_dev(struct dfl_image_reload *reload, struct device
 static struct dfl_image_trigger *
 dfl_find_trigger(struct device *parent)
 {
-	struct reload_hp_controller *hpc, *tmp;
+	struct dfl_hp_controller *hpc, *tmp;
 	struct dfl_image_reload *reload;
 
 	mutex_lock(&dfl_priv->lock);
@@ -390,7 +390,7 @@ void dfl_image_reload_trigger_unregister(struct dfl_image_trigger *trigger)
 }
 EXPORT_SYMBOL_GPL(dfl_image_reload_trigger_unregister);
 
-static void dfl_hp_add_reload_dev(struct dfl_image_reload_priv *priv, struct reload_hp_controller *hpc)
+static void dfl_hp_add_reload_dev(struct dfl_image_reload_priv *priv, struct dfl_hp_controller *hpc)
 {
 	mutex_lock(&priv->lock);
 	list_add(&hpc->node, &priv->dev_list);
@@ -451,7 +451,7 @@ static int dfl_hp_init_slot(struct controller *ctrl)
 }
 
 static int
-dfl_hp_create_new_hpc(struct reload_hp_controller *hpc, struct pci_dev *hotplug_bridge, 
+dfl_hp_create_new_hpc(struct dfl_hp_controller *hpc, struct pci_dev *hotplug_bridge, 
 		const char * name, const struct dfl_image_reload_ops *ops, void *priv)
 {
 	struct dfl_image_reload *reload = &hpc->reload;
@@ -489,11 +489,11 @@ free_pcie:
 	return ret;
 }
 
-static struct reload_hp_controller *
+static struct dfl_hp_controller *
 dfl_hp_find_exist_hpc(struct pci_dev *hotplug_bridge, 
 		struct pci_dev *pcidev, const struct dfl_image_reload_ops *ops)
 {
-	struct reload_hp_controller *hpc, *tmp;
+	struct dfl_hp_controller *hpc, *tmp;
 
 	mutex_lock(&dfl_priv->lock);
 
@@ -514,9 +514,9 @@ dfl_hp_find_exist_hpc(struct pci_dev *hotplug_bridge,
 	return NULL;
 }
 
-static struct reload_hp_controller *dfl_hp_reclaim_hpc(struct pci_dev *hotplug_bridge)
+static struct dfl_hp_controller *dfl_hp_reclaim_hpc(struct pci_dev *hotplug_bridge)
 {
-	struct reload_hp_controller *hpc, *tmp;
+	struct dfl_hp_controller *hpc, *tmp;
 
 	mutex_lock(&dfl_priv->lock);
 
@@ -549,7 +549,7 @@ static struct reload_hp_controller *dfl_hp_reclaim_hpc(struct pci_dev *hotplug_b
 
 static void dfl_image_reload_remove_devs(void)
 {
-	struct reload_hp_controller *hpc, *tmp;
+	struct dfl_hp_controller *hpc, *tmp;
 	struct controller *ctrl;
 
 	mutex_lock(&dfl_priv->lock);
@@ -569,7 +569,7 @@ struct dfl_image_reload *
 dfl_image_reload_dev_register(const char *name, const struct dfl_image_reload_ops *ops, void *priv)
 {
 	struct pci_dev *pcidev, *hotplug_bridge;
-	struct reload_hp_controller *hpc;
+	struct dfl_hp_controller *hpc;
 	struct dfl_image_reload *reload;
 	int ret;
 
