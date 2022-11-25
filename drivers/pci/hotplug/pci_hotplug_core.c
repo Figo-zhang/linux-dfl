@@ -231,6 +231,50 @@ static struct pci_slot_attribute hotplug_slot_attr_test = {
 	.store = test_write_file
 };
 
+static ssize_t available_images_read_file(struct pci_slot *pci_slot, char *buf)
+{
+	struct hotplug_slot *slot = pci_slot->hotplug;
+	ssize_t count = 0;
+
+	if (!try_module_get(slot->owner))
+		return -ENODEV;
+
+	if (slot->ops->available_images(slot, buf))
+		count = slot->ops->available_images(slot, buf);
+
+	module_put(slot->owner);
+
+	return count;
+}
+
+static struct pci_slot_attribute hotplug_slot_attr_available_images = {
+	.attr = {.name = "available_images", .mode = 0444},
+	.show = available_images_read_file,
+};
+
+static ssize_t image_reload_write_file(struct pci_slot *pci_slot,
+				       const char *buf, size_t count)
+{
+	struct hotplug_slot *slot = pci_slot->hotplug;
+	int retval = 0;
+
+	if (!try_module_get(slot->owner))
+		return -ENODEV;
+
+	if (slot->ops->image_reload)
+		retval = slot->ops->image_reload(slot, buf);
+	module_put(slot->owner);
+
+	if (retval)
+		return retval;
+	return count;
+}
+
+static struct pci_slot_attribute hotplug_slot_attr_image_reload = {
+	.attr = {.name = "image_reload", .mode = 0644},
+	.store = image_reload_write_file
+};
+
 static bool has_power_file(struct pci_slot *pci_slot)
 {
 	struct hotplug_slot *slot = pci_slot->hotplug;
@@ -289,6 +333,20 @@ static bool has_test_file(struct pci_slot *pci_slot)
 	return false;
 }
 
+static bool has_available_images_file(struct pci_slot *pci_slot)
+{
+	struct hotplug_slot *slot = pci_slot->hotplug;
+
+	return slot && slot->ops && slot->ops->available_images;
+}
+
+static bool has_image_reload_file(struct pci_slot *pci_slot)
+{
+	struct hotplug_slot *slot = pci_slot->hotplug;
+
+	return slot && slot->ops && slot->ops->image_reload;
+}
+
 static int fs_add_slot(struct pci_slot *pci_slot)
 {
 	int retval = 0;
@@ -331,8 +389,30 @@ static int fs_add_slot(struct pci_slot *pci_slot)
 			goto exit_test;
 	}
 
+	if (has_available_images_file(pci_slot)) {
+		retval = sysfs_create_file(&pci_slot->kobj,
+					   &hotplug_slot_attr_available_images.attr);
+		if (retval)
+			goto exit_available_images;
+	}
+
+	if (has_image_reload_file(pci_slot)) {
+		retval = sysfs_create_file(&pci_slot->kobj,
+					   &hotplug_slot_attr_image_reload.attr);
+		if (retval)
+			goto exit_image_reload;
+	}
+
 	goto exit;
 
+exit_image_reload:
+	if (has_adapter_file(pci_slot))
+		sysfs_remove_file(&pci_slot->kobj,
+				  &hotplug_slot_attr_available_images.attr);
+exit_available_images:
+	if (has_adapter_file(pci_slot))
+		sysfs_remove_file(&pci_slot->kobj,
+				  &hotplug_slot_attr_test.attr);
 exit_test:
 	if (has_adapter_file(pci_slot))
 		sysfs_remove_file(&pci_slot->kobj,
@@ -371,6 +451,12 @@ static void fs_remove_slot(struct pci_slot *pci_slot)
 
 	if (has_test_file(pci_slot))
 		sysfs_remove_file(&pci_slot->kobj, &hotplug_slot_attr_test.attr);
+
+	if (has_available_images_file(pci_slot))
+		sysfs_remove_file(&pci_slot->kobj, &hotplug_slot_attr_available_images.attr);
+
+	if (has_image_reload_file(pci_slot))
+		sysfs_remove_file(&pci_slot->kobj, &hotplug_slot_attr_image_reload.attr);
 
 	pci_hp_remove_module_link(pci_slot);
 }
