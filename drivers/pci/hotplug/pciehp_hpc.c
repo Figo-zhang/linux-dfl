@@ -353,6 +353,12 @@ int pciehp_link_enable(struct controller *ctrl)
 }
 EXPORT_SYMBOL_GPL(pciehp_link_enable);
 
+int pciehp_link_disable(struct controller *ctrl)
+{
+	return __pciehp_link_set(ctrl, false);
+}
+EXPORT_SYMBOL_GPL(pciehp_link_disable);
+
 int pciehp_get_raw_indicator_status(struct hotplug_slot *hotplug_slot,
 				    u8 *status)
 {
