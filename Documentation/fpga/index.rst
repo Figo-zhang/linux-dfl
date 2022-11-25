@@ -8,6 +8,7 @@ fpga
     :maxdepth: 1
 
     dfl
+    fpgahp
 
 .. only::  subproject and html
 
