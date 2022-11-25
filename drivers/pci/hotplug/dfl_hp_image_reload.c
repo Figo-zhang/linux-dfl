@@ -50,9 +50,9 @@ static ssize_t dfl_hp_available_images(struct hotplug_slot *slot, char *buf)
 	if (!trigger->ops->available_images)
 		return -EINVAL;
 
-	mutex_lock(&dfl_priv->lock);
+	mutex_lock(&ctrl->state_lock);
 	count = trigger->ops->available_images(trigger, buf);
-	mutex_unlock(&dfl_priv->lock);
+	mutex_unlock(&ctrl->state_lock);
 
 	return count;
 }
@@ -148,10 +148,10 @@ static int dfl_hp_image_reload(struct hotplug_slot *slot, const char *buf)
 	if (!pcidev)
 		return -EINVAL;
 
-	reload->state = IMAGE_RELOAD_RELOADING;
-
+	mutex_lock(&ctrl->state_lock);
 	pm_runtime_get_sync(&ctrl->pcie->port->dev);
-	mutex_lock(&dfl_priv->lock);
+
+	reload->state = IMAGE_RELOAD_RELOADING;
 
 	/* 1. remove all PFs and VFs except the PF0*/
 	dfl_hp_remove_sibling_pci_dev(pcidev);
@@ -185,16 +185,16 @@ static int dfl_hp_image_reload(struct hotplug_slot *slot, const char *buf)
 	dfl_hp_set_slot_off(ctrl);
 
 out:
-	mutex_unlock(&dfl_priv->lock);
-
 	/* 8. turn on slot and enumerate PCI devices below a hotplug bridge*/
 	dfl_hp_rescan_slot(ctrl);
-	pm_runtime_put(&ctrl->pcie->port->dev);
 	
 	if (ret)
 		reload->state = IMAGE_RELOAD_FAIL;
 	else
 		reload->state = IMAGE_RELOAD_DONE;
+
+	pm_runtime_put(&ctrl->pcie->port->dev);
+	mutex_unlock(&ctrl->state_lock);
 
 	return ret;
 }
