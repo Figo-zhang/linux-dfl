@@ -13,6 +13,33 @@
 #include <linux/pci_hotplug.h>
 
 struct dfl_image_reload;
+struct dfl_image_trigger;
+
+/**
+ * struct dfl_image_trigger_ops - image trigger specific operations
+ * @available_images: Required: available images for reload trigger
+ * @image_trigger: Required: trigger the image reload on BMC
+ */
+struct dfl_image_trigger_ops {
+	ssize_t (*available_images)(struct dfl_image_trigger *trigger, char *buf);
+	int (*image_trigger)(struct dfl_image_trigger *trigger, const char *buf,
+			     u32 *wait_time_sec);
+};
+
+/**
+ * struct dfl_image_trigger - represent a dfl image trigger instance
+ *
+ * @ops: ops of this dfl_image_trigger
+ * @priv: private data for dfl_image_trigger
+ * @parent: parent device of trigger
+ * @is_registered: register status
+ */
+struct dfl_image_trigger {
+	const struct dfl_image_trigger_ops *ops;
+	void *priv;
+	struct device *parent;
+	bool is_registered;
+};
 
 /**
  * struct dfl_image_reload_ops - image reload specific operations
@@ -45,6 +72,7 @@ enum image_reload_states {
  * @ops: ops of this dfl_image_reload
  * @state: the status of image reload
  * @name: name of the image reload device.
+ * @trigger: image trigger instance
  */
 struct dfl_image_reload {
 	struct mutex lock; /* protect data structure contents */
@@ -53,6 +81,7 @@ struct dfl_image_reload {
 	const struct dfl_image_reload_ops *ops;
 	enum image_reload_states state;
 	const char *name;
+	struct dfl_image_trigger trigger;
 };
 
 #define to_dfl_reload(d) container_of(d, struct dfl_image_reload, slot)
@@ -61,5 +90,9 @@ struct dfl_image_reload *
 dfl_hp_register_image_reload(const char *name,
 			     const struct dfl_image_reload_ops *ops, void *priv);
 void dfl_hp_unregister_image_reload(struct dfl_image_reload *dfl_reload);
+struct dfl_image_trigger *
+dfl_hp_register_trigger(const struct dfl_image_trigger_ops *ops,
+			struct device *parent, void *priv);
+void dfl_hp_unregister_trigger(struct dfl_image_trigger *trigger);
 
 #endif
