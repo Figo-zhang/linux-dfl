@@ -36,7 +36,7 @@ static struct dfl_hp_image_reload_priv *dfl_priv;
 #define to_dfl_trigger_reload(d) container_of(d, struct dfl_image_reload, trigger)
 #define to_hpc(d) container_of(d, struct dfl_hp_controller, ctrl)
 
-static ssize_t dfl_hotplug_available_images(struct hotplug_slot *slot, char *buf)
+static ssize_t dfl_hp_available_images(struct hotplug_slot *slot, char *buf)
 {
 	struct controller *ctrl = to_ctrl(slot);
 	struct dfl_hp_controller *hpc = to_hpc(ctrl);
@@ -129,7 +129,7 @@ err_exit:
 	return retval;
 }
 
-static int dfl_hotplug_image_reload(struct hotplug_slot *slot, const char *buf)
+static int dfl_hp_image_reload(struct hotplug_slot *slot, const char *buf)
 {
 	struct controller *ctrl = to_ctrl(slot);
 	struct dfl_hp_controller *hpc = to_hpc(ctrl);
@@ -165,7 +165,7 @@ static int dfl_hotplug_image_reload(struct hotplug_slot *slot, const char *buf)
 		}
 	}
 
-	/* 3. trigger image reload */
+	/* 3. trigger image reload of BMC */
 	ret = trigger->ops->image_trigger(trigger, buf);
 	if (ret) {
 		ctrl_err(ctrl, "image trigger failed\n");
@@ -178,7 +178,7 @@ static int dfl_hotplug_image_reload(struct hotplug_slot *slot, const char *buf)
 	/* 5. remove PCI devices below hotplug bridge */
 	pciehp_unconfigure_device(ctrl, true);
 
-	/* 6. Wait for FPGA/BMC reload done */
+	/* 6. wait for FPGA/BMC reload done */
 	ssleep(10);
 
 	/* 7. turn off slot */
@@ -187,7 +187,7 @@ static int dfl_hotplug_image_reload(struct hotplug_slot *slot, const char *buf)
 out:
 	mutex_unlock(&dfl_priv->lock);
 
-	/* 8. turn one and enumerate PCI devices below a hotplug bridge*/
+	/* 8. turn on slot and enumerate PCI devices below a hotplug bridge*/
 	dfl_hp_rescan_slot(ctrl);
 	pm_runtime_put(&ctrl->pcie->port->dev);
 	
@@ -307,9 +307,9 @@ static int dfl_hp_init_controller(struct controller *ctrl, struct pcie_device *d
 	return 0;
 }
 
-static const struct hotplug_slot_ops dfl_hotplug_slot_ops = {
-        .available_images       = dfl_hotplug_available_images,
-        .image_reload           = dfl_hotplug_image_reload
+static const struct hotplug_slot_ops dfl_hp_slot_ops = {
+        .available_images       = dfl_hp_available_images,
+        .image_reload           = dfl_hp_image_reload
 };
 
 static int dfl_hp_init_slot(struct controller *ctrl)
@@ -318,21 +318,19 @@ static int dfl_hp_init_slot(struct controller *ctrl)
 	struct pci_dev *hotplug_bridge = ctrl->pcie->port;
 	int ret;
 
-	printk("%s: pcidev %lx\n", __func__, (unsigned long)hotplug_bridge);
-
 	snprintf(name, SLOT_NAME_SIZE, "%u", (ctrl->slot_cap & PCI_EXP_SLTCAP_PSN) >> 19);
 	
-	ctrl->hotplug_slot.ops = &dfl_hotplug_slot_ops;
+	ctrl->hotplug_slot.ops = &dfl_hp_slot_ops;
 
 	 /* Register PCI slot */
         ret = pci_hp_register(&ctrl->hotplug_slot, hotplug_bridge->subordinate,
 			PCI_SLOT(hotplug_bridge->devfn), name);
         if (ret) {
-                pr_err("pci_hp_register failed with error %d\n", ret);
+                ctrl_err(ctrl, "pci_hp_register failed with error %d\n", ret);
                 return ret;
         }
 
-        pr_info("Slot [%s] registered\n", hotplug_slot_name(&ctrl->hotplug_slot));
+        ctrl_info(ctrl, "Slot [%s] registered\n", hotplug_slot_name(&ctrl->hotplug_slot));
 
 	return ret;
 }
@@ -381,17 +379,19 @@ dfl_hp_find_exist_hpc(struct pci_dev *hotplug_bridge,
 		struct pci_dev *pcidev, const struct dfl_image_reload_ops *ops)
 {
 	struct dfl_hp_controller *hpc, *tmp;
+	struct controller *ctrl;
 
 	mutex_lock(&dfl_priv->lock);
 
 	list_for_each_entry_safe(hpc, tmp, &dfl_priv->dev_list, node) {
+		ctrl = &hpc->ctrl;
 		if (!hpc->reload.is_registered)
 			continue;
 		if ((hpc->hotplug_bridge == hotplug_bridge)
 				&& (hpc->reload.priv == pcidev)
 				&& (hpc->reload.ops == ops)) {
 			mutex_unlock(&dfl_priv->lock);
-			printk("%s found existing \n", __func__);
+			ctrl_dbg(ctrl, "%s reuse hpc slot(%s)\n", __func__, slot_name(&hpc->ctrl));
 			return hpc;
 		}
 	}
@@ -404,17 +404,19 @@ dfl_hp_find_exist_hpc(struct pci_dev *hotplug_bridge,
 static struct dfl_hp_controller *dfl_hp_reclaim_hpc(struct pci_dev *hotplug_bridge)
 {
 	struct dfl_hp_controller *hpc, *tmp;
+	struct controller *ctrl;
 
 	mutex_lock(&dfl_priv->lock);
 
 	list_for_each_entry_safe(hpc, tmp, &dfl_priv->dev_list, node) {
+		ctrl = &hpc->ctrl;
 		/* skip using hpc */
 		if (hpc->reload.is_registered)
 			continue;
 
 		/* reclaim unused hpc, will reuse it later */
 		if (hpc->hotplug_bridge == hotplug_bridge) {
-			printk("%s reuse it %s \n", __func__, hpc->reload.name);
+			ctrl_dbg(ctrl, "%s reuse hpc slot(%s)\n", __func__, slot_name(&hpc->ctrl));
 			mutex_unlock(&dfl_priv->lock);
 			return hpc;
 		}
@@ -422,7 +424,7 @@ static struct dfl_hp_controller *dfl_hp_reclaim_hpc(struct pci_dev *hotplug_brid
 		/* free unused hpc */
 		if (hpc->reload.is_registered && hpc->reload.state == IMAGE_RELOAD_DONE) {
 			list_del(&hpc->node);
-			printk("%s free it %s \n", __func__, hpc->reload.name);
+			ctrl_dbg(ctrl, "%s free hpc slot(%s)\n", __func__, slot_name(&hpc->ctrl));
 			pci_hp_deregister(&hpc->ctrl.hotplug_slot);
 			kfree(hpc);
 			continue;
@@ -444,7 +446,6 @@ static void dfl_image_reload_remove_devs(void)
 	list_for_each_entry_safe(hpc, tmp, &dfl_priv->dev_list, node) {
 		list_del(&hpc->node);
 		ctrl = &hpc->ctrl;
-		printk("%s ===== %s \n", __func__, hpc->reload.name);
 		pci_hp_deregister(&ctrl->hotplug_slot);
 		kfree(hpc);
 	}
@@ -473,8 +474,6 @@ dfl_image_reload_dev_register(const char *name, const struct dfl_image_reload_op
 	if (!hotplug_bridge)
 		return ERR_PTR(-EINVAL);
 
-	printk("%s hotplug_dev %lx pcidev %lx\n",__func__, (unsigned long)hotplug_bridge, (unsigned long)pcidev);
-
 	dev_dbg(&pcidev->dev, "hotplug bridge: %04x:%02x:%02x\n",
 			pci_domain_nr(hotplug_bridge->bus), hotplug_bridge->bus->number,
 			PCI_SLOT(hotplug_bridge->devfn));
@@ -486,12 +485,9 @@ dfl_image_reload_dev_register(const char *name, const struct dfl_image_reload_op
 
 	/* can it reuse the free hotplug controller? */
 	hpc = dfl_hp_reclaim_hpc(hotplug_bridge);
-	if (hpc) {
-		printk("%s can reuse\n", __func__);
+	if (hpc)
 		goto reuse;
-	}
 
-	printk("%s create a new one\n", __func__);
 	hpc = kzalloc(sizeof(*hpc), GFP_KERNEL);
 	if (!hpc)
 		return ERR_PTR(-ENOMEM);
@@ -504,7 +500,6 @@ dfl_image_reload_dev_register(const char *name, const struct dfl_image_reload_op
 	}
 
 reuse:
-	printk("%s re-init hc\n", __func__);
 	mutex_lock(&hpc->reload.lock);
 	hpc->reload.ops = ops;
 	hpc->reload.name = name;
