@@ -69,6 +69,7 @@ int pciehp_configure_device(struct controller *ctrl)
 	pci_unlock_rescan_remove();
 	return ret;
 }
+EXPORT_SYMBOL_GPL(pciehp_configure_device);
 
 /**
  * pciehp_unconfigure_device() - remove PCI devices below a hotplug bridge
@@ -120,3 +121,4 @@ void pciehp_unconfigure_device(struct controller *ctrl, bool presence)
 
 	pci_unlock_rescan_remove();
 }
+EXPORT_SYMBOL_GPL(pciehp_unconfigure_device);
