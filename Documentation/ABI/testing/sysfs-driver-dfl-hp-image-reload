@@ -1,10 +1,4 @@
-What:		/sys/class/fpga_card/cardX/dfl_reload/name
-Date:		Nov 2022
-KernelVersion:  6.1
-Contact:	Tianfei Zhang <tianfei.zhang@intel.com>
-Description:	Read-only. This file returns the name of the reload device.
-
-What:		/sys/class/fpga_card/cardX/dfl_reload/available_images
+What:		/sys/bus/pci/slots/X-X/available_images
 Date:		Nov 2022
 KernelVersion:  6.1
 Contact:	Tianfei Zhang <tianfei.zhang@intel.com>
@@ -14,7 +8,7 @@ Description:	Read-only. This file returns a space separated list of
 		or firmware image in FLASH or EEPROM storage that may
 		be loaded.
 
-What:		/sys/class/fpga_card/cardX/dfl_reload/image_reload
+What:		/sys/bus/pci/slots/X-X/image_reload
 Date:		Nov 2022
 KernelVersion:  6.1
 Contact:	Tianfei Zhang <tianfei.zhang@intel.com>
@@ -24,11 +18,3 @@ Description:	Write-only. A key word may be written to this file to
 		list of supported key words for the underlying device.
 		Writing an unsupported string to this file will result in
 		EINVAL being returned.
-
-What:		/sys/class/fpga_card/cardX/dfl_reload/reload_wait_secs
-Date:		Nov 2022
-KernelVersion:  6.1
-Contact:	Tianfei Zhang <tianfei.zhang@intel.com>
-Description:	Read-Write. Image reload timeout in seconds. Read this file
-		to get the current timeout for image realod. Write this file
-		to set a new timeout for image reload.

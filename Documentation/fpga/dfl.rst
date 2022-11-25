@@ -569,25 +569,22 @@ update the whole FPGA image, include the static regions and PR regions, we
 should burn the new image into the flash on the Card, and trigger the BMC
 to reload the new image into FPGA, we call this process as image reload.
 
-To implement the FPGA image reload, we introduce dfl-image-reload manager
-driver, which manager the whole process of the image reload. The dfl image
-reload manager will leverage the fpga card framework to manager those
-reload devices. The fpga card operations will provide image reload
-specific operations, like reload_prepare, which uses for prepare image
-reload for PF0 device, like remove non-reserved devices on PF0.
+To implement the FPGA image reload, we introduce dfl-hp-image-reload manager
+driver, which manager the whole process of the image reload. The dfl hotplug
+image reload manager will leverage the PCIe hotplug framework to manager those
+reload devices.
 
 During the image reload, we should remove all of PFs/VFs except PF0 and
 all of non-reserved devices of PF0 before trigger the reload. After the
 trigger, the PF0 include the reserved devices also will be removed. On
-the other hand, we should disable the link of the PCI root hub during the
-image reload.
+the other hand, we leverage the APIs of PCIe hotplug driver to manage the
+hotplug bridge like turn on/off the slot and enumerate PCI devices below
+a hotplug bridge.
 
-In general, the dfl-image-reload driver provides some sysfs files::
+In general, the dfl-hp-image-reload driver provides some sysfs files::
 
-	/sys/class/fpga_card/<cardX>/dfl_reload/name
-	/sys/class/fpga_card/<cardX>/dfl_reload/available_images
-        /sys/class/fpga_card/<cardX>/dfl_reload/image_reload
-        /sys/class/fpga_card/<cardX>/dfl_reload/reload_wait_secs
+        /sys/bus/pci/slots/<X-X>/available_images
+        /sys/bus/pci/slots/<X-X>/image_reload
 
 
 Open discussion
