@@ -14,6 +14,7 @@
 #include <linux/pm_runtime.h>
 #include <linux/uaccess.h>
 
+#include "../pci.h"
 #include "pciehp.h"
 
 struct dfl_hp_image_reload_priv {
@@ -38,12 +39,152 @@ static inline struct dfl_hp_controller *to_hpc(struct controller *ctrl)
 
 static int dfl_hp_available_images(struct hotplug_slot *slot, char *buf)
 {
+	struct controller *ctrl = to_ctrl(slot);
+	struct dfl_hp_controller *hpc = to_hpc(ctrl);
+	struct dfl_image_reload *reload = &hpc->reload;
+	struct dfl_image_trigger *trigger = &reload->trigger;
+	ssize_t count;
+
+	if (!reload->is_registered || !trigger->is_registered)
+		return -EINVAL;
+
+	if (!trigger->ops->available_images)
+		return -EINVAL;
+
+	mutex_lock(&ctrl->state_lock);
+	count = trigger->ops->available_images(trigger, buf);
+	mutex_unlock(&ctrl->state_lock);
+
+	return count;
+}
+
+static void dfl_hp_remove_sibling_pci_dev(struct pci_dev *pcidev)
+{
+	struct pci_bus *bus = pcidev->bus;
+	struct pci_dev *sibling, *tmp;
+
+	if (bus) {
+		list_for_each_entry_safe_reverse(sibling, tmp,
+						 &bus->devices, bus_list)
+			if (sibling != pcidev)
+				pci_stop_and_remove_bus_device_locked(sibling);
+	}
+}
+
+static int dfl_hp_link_enable(struct controller *ctrl)
+{
+	int retval = 0;
+
+	retval = pciehp_link_enable(ctrl);
+	if (retval) {
+		ctrl_err(ctrl, "Can not enable the link!\n");
+		return retval;
+	}
+
+	/* Check link training status */
+	retval = pciehp_check_link_status(ctrl);
+	if (retval) {
+		ctrl_err(ctrl, "check link status fail!\n");
+		return retval;
+	}
+
+	/* Check for a power fault */
+	if (pciehp_query_power_fault(ctrl)) {
+		ctrl_err(ctrl, "Slot(%s): Power fault\n", slot_name(ctrl));
+		return retval;
+	}
+
+	return 0;
+}
+
+static int dfl_hp_rescan_slot(struct controller *ctrl)
+{
+	int retval = 0;
+	struct pci_bus *parent = ctrl->pcie->port->subordinate;
+
+	retval = pciehp_configure_device(ctrl);
+	if (retval && retval != -EEXIST) {
+		ctrl_err(ctrl, "Cannot add device at %04x:%02x:00\n",
+			 pci_domain_nr(parent), parent->number);
+		return retval;
+	}
+
 	return 0;
 }
 
 static int dfl_hp_image_reload(struct hotplug_slot *slot, const char *buf)
 {
-	return 0;
+	struct controller *ctrl = to_ctrl(slot);
+	struct dfl_hp_controller *hpc = to_hpc(ctrl);
+	struct dfl_image_reload *reload = &hpc->reload;
+	struct dfl_image_trigger *trigger = &reload->trigger;
+	struct pci_dev *pcidev;
+	u32 wait_time_msec;
+	int ret = -EINVAL;
+
+	if (!reload->is_registered || !trigger->is_registered)
+		return -EINVAL;
+
+	if (!trigger->ops->image_trigger)
+		return -EINVAL;
+
+	pcidev = reload->priv;
+	if (!pcidev)
+		return -EINVAL;
+
+	mutex_lock(&ctrl->state_lock);
+	pm_runtime_get_sync(&ctrl->pcie->port->dev);
+
+	reload->state = IMAGE_RELOAD_RELOADING;
+
+	/* 1. remove all PFs and VFs except the PF0 */
+	dfl_hp_remove_sibling_pci_dev(pcidev);
+
+	/* 2. remove all non-reserved devices */
+	if (reload->ops->reload_prepare) {
+		ret = reload->ops->reload_prepare(reload);
+		if (ret) {
+			ctrl_err(ctrl, "prepare image reload failed\n");
+			dfl_hp_rescan_slot(ctrl);
+			goto out;
+		}
+	}
+
+	/* 3. trigger image reload of BMC */
+	ret = trigger->ops->image_trigger(trigger, buf, &wait_time_msec);
+	if (ret) {
+		ctrl_err(ctrl, "image trigger failed\n");
+		dfl_hp_rescan_slot(ctrl);
+		goto out;
+	}
+
+	/* 4. disable link of hotplug bridge */
+	pciehp_link_disable(ctrl);
+
+	/* 5. remove PCI devices below hotplug bridge */
+	pciehp_unconfigure_device(ctrl, true);
+
+	/* 6. wait for FPGA/BMC reload done */
+	msleep(wait_time_msec);
+
+	/* 7. re-enable link */
+	ret = dfl_hp_link_enable(ctrl);
+	if (ret)
+		goto out;
+
+	/* 8. enumerate PCI devices below hotplug bridge */
+	ret = dfl_hp_rescan_slot(ctrl);
+
+out:
+	if (ret)
+		reload->state = IMAGE_RELOAD_FAIL;
+	else
+		reload->state = IMAGE_RELOAD_DONE;
+
+	pm_runtime_put(&ctrl->pcie->port->dev);
+	mutex_unlock(&ctrl->state_lock);
+
+	return ret;
 }
 
 static bool dfl_match_trigger_dev(struct dfl_image_reload *reload, struct device *parent)
