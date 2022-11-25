@@ -87,11 +87,13 @@ static void dfl_hp_set_slot_off(struct controller *ctrl)
 	}
 }
 
-static int dfl_hp_rescan_slot(struct controller *ctrl)
+static int dfl_hp_set_slot_on(struct controller *ctrl)
 {
-	int retval = 0;
-	struct pci_bus *parent = ctrl->pcie->port->subordinate;
+	int retval;
 
+	/*
+	 * Turn on slot
+	 */
 	if (POWER_CTRL(ctrl)) {
 		/* Power on slot */
 		retval = pciehp_power_on_slot(ctrl);
@@ -100,6 +102,14 @@ static int dfl_hp_rescan_slot(struct controller *ctrl)
 
 		msleep(1000);
 	}
+
+	return 0;
+}
+
+static int dfl_hp_rescan_slot(struct controller *ctrl)
+{
+	int retval = 0;
+	struct pci_bus *parent = ctrl->pcie->port->subordinate;
 
 	/* Check link training status */
 	retval = pciehp_check_link_status(ctrl);
@@ -162,7 +172,7 @@ static int dfl_hp_image_reload(struct hotplug_slot *slot, const char *buf)
 		ret = reload->ops->reload_prepare(reload);
 		if (ret) {
 			ctrl_err(ctrl, "prepare image reload failed\n");
-			goto out;
+			goto trigger_fail;
 		}
 	}
 
@@ -170,7 +180,7 @@ static int dfl_hp_image_reload(struct hotplug_slot *slot, const char *buf)
 	ret = trigger->ops->image_trigger(trigger, buf, &wait_time_sec);
 	if (ret) {
 		ctrl_err(ctrl, "image trigger failed\n");
-		goto out;
+		goto trigger_fail;
 	}
 
 	/* 4. disable link of hotplug bridge */
@@ -185,18 +195,31 @@ static int dfl_hp_image_reload(struct hotplug_slot *slot, const char *buf)
 	/* 7. turn off slot */
 	dfl_hp_set_slot_off(ctrl);
 
-out:
-	/* 8. turn on slot and enumerate PCI devices below a hotplug bridge*/
-	dfl_hp_rescan_slot(ctrl);
-
+	/* 8. turn on slot*/
+	ret = dfl_hp_set_slot_on(ctrl);
 	if (ret)
-		reload->state = IMAGE_RELOAD_FAIL;
-	else
-		reload->state = IMAGE_RELOAD_DONE;
+		goto slot_on_fail;
+
+	/* 9. enumerate PCI devices below a hotplug bridge*/
+	ret = dfl_hp_rescan_slot(ctrl);
+	if (ret)
+		goto rescan_fail;
+
+	reload->state = IMAGE_RELOAD_DONE;
 
 	pm_runtime_put(&ctrl->pcie->port->dev);
 	mutex_unlock(&ctrl->state_lock);
 
+	return ret;
+
+rescan_fail:
+	dfl_hp_set_slot_on(ctrl);
+trigger_fail:
+	dfl_hp_rescan_slot(ctrl);
+slot_on_fail:
+	reload->state = IMAGE_RELOAD_FAIL;
+	pm_runtime_put(&ctrl->pcie->port->dev);
+	mutex_unlock(&ctrl->state_lock);
 	return ret;
 }
 
