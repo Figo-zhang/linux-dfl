@@ -29,6 +29,9 @@
  * @reset_slot: Optional interface to allow override of a bus reset for the
  *	slot for cases where a secondary bus reset can result in spurious
  *	hotplug events or where a slot can be reset independent of the bus.
+ * @available_images: Optional: called to get the available images for accelerator,
+ *	like FPGA.
+ * @image_load: Optional: called to load a new image for accelerator like FPGA.
  *
  * The table of function pointers that is passed to the hotplug pci core by a
  * hotplug pci driver.  These functions are called by the hotplug pci core when
@@ -45,6 +48,8 @@ struct hotplug_slot_ops {
 	int (*get_latch_status)		(struct hotplug_slot *slot, u8 *value);
 	int (*get_adapter_status)	(struct hotplug_slot *slot, u8 *value);
 	int (*reset_slot)		(struct hotplug_slot *slot, bool probe);
+	int (*available_images)(struct hotplug_slot *slot, char *buf);
+	int (*image_load)(struct hotplug_slot *slot, const char *buf);
 };
 
 /**
