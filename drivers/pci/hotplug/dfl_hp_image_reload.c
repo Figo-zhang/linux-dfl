@@ -75,35 +75,14 @@ static void dfl_hp_set_slot_off(struct controller *ctrl)
 	/*
 	 * Turn off slot
 	 */
-	if (POWER_CTRL(ctrl)) {
-		pciehp_power_off_slot(ctrl);
-
-		/*
-		 * After turning power off, we must wait for at least 1 second
-		 * before taking any action that relies on power having been
-		 * removed from the slot/adapter.
-		 */
-		msleep(1000);
-	}
-}
-
-static int dfl_hp_set_slot_on(struct controller *ctrl)
-{
-	int retval;
+	pciehp_power_off_slot(ctrl);
 
 	/*
-	 * Turn on slot
+	 * After turning power off, we must wait for at least 1 second
+	 * before taking any action that relies on power having been
+	 * removed from the slot/adapter.
 	 */
-	if (POWER_CTRL(ctrl)) {
-		/* Power on slot */
-		retval = pciehp_power_on_slot(ctrl);
-		if (retval)
-			return retval;
-
-		msleep(1000);
-	}
-
-	return 0;
+	msleep(1000);
 }
 
 static int dfl_hp_rescan_slot(struct controller *ctrl)
@@ -196,14 +175,14 @@ static int dfl_hp_image_reload(struct hotplug_slot *slot, const char *buf)
 	dfl_hp_set_slot_off(ctrl);
 
 	/* 8. turn on slot*/
-	ret = dfl_hp_set_slot_on(ctrl);
+	ret = pciehp_power_on_slot(ctrl);
 	if (ret)
-		goto slot_on_fail;
+		goto slot_fail;
 
 	/* 9. enumerate PCI devices below a hotplug bridge*/
 	ret = dfl_hp_rescan_slot(ctrl);
 	if (ret)
-		goto rescan_fail;
+		goto slot_fail;
 
 	reload->state = IMAGE_RELOAD_DONE;
 
@@ -212,11 +191,9 @@ static int dfl_hp_image_reload(struct hotplug_slot *slot, const char *buf)
 
 	return ret;
 
-rescan_fail:
-	dfl_hp_set_slot_on(ctrl);
 trigger_fail:
 	dfl_hp_rescan_slot(ctrl);
-slot_on_fail:
+slot_fail:
 	reload->state = IMAGE_RELOAD_FAIL;
 	pm_runtime_put(&ctrl->pcie->port->dev);
 	mutex_unlock(&ctrl->state_lock);
@@ -318,9 +295,6 @@ static int dfl_hp_init_controller(struct controller *ctrl, struct pcie_device *d
 	ctrl->pcie = dev;
 
 	pcie_capability_read_dword(hotplug_bridge, PCI_EXP_SLTCAP, &slot_cap);
-
-	/* set the Power Controller Present */
-	slot_cap |= PCI_EXP_SLTCAP_PCP;
 
 	ctrl->slot_cap = slot_cap;
 	mutex_init(&ctrl->ctrl_lock);
