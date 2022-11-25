@@ -561,6 +561,31 @@ new DFL feature via UIO direct access, its feature id should be added to the
 driver's id_table.
 
 
+DFL hotplug image reload
+========================
+To update the FPGA bitstream, kernel reconfigures the PR region by Partial
+Reconfiguration technology, for example reconfigure the AFU. When updating
+the whole FPGA image, including the static regions and PR regions, kernel
+burns the new image into the flash on the Card, and triggers the BMC
+to reload a new image into FPGA, this process is called image reload.
+
+To implement the FPGA image reload, kernel has a dfl-hp-image-reload driver,
+which manages the whole image reload process. The DFL hotplug image reload
+driver leverages the PCIe hotplug framework and APIs from pciehp driver to
+manager the process of image reload and PCI devices reconfiguration.
+
+During the image reload, the DFL hotplug driver removes all of PFs/VFs
+devices except the PF0 device and all of non-reserved devices below this PF0
+before triggering the reload. After the triggering, the reserved devices below
+this PF0 device will also be removed. The DFL hotplug driver performs link
+disable/enable and enumerates the PCI devices below the hotplug bridge.
+
+In general, the dfl-hp-image-reload driver provides some sysfs files::
+
+        /sys/bus/pci/slots/<X-X>/available_images
+        /sys/bus/pci/slots/<X-X>/image_reload
+
+
 Open discussion
 ===============
 FME driver exports one ioctl (DFL_FPGA_FME_PORT_PR) for partial reconfiguration
