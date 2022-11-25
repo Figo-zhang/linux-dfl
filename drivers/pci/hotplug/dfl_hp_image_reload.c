@@ -46,6 +46,84 @@ static int dfl_hp_image_reload(struct hotplug_slot *slot, const char *buf)
 	return 0;
 }
 
+static bool dfl_match_trigger_dev(struct dfl_image_reload *reload, struct device *parent)
+{
+	struct pci_dev *pcidev = reload->priv;
+	struct device *reload_dev = &pcidev->dev;
+
+	/*
+	 * Trigger device (security dev) is a subordinate device under
+	 * reload device (pci dev), so check if the parent device of
+	 * trigger device recursively
+	 */
+	while (parent) {
+		if (parent == reload_dev)
+			return true;
+		parent = parent->parent;
+	}
+
+	return false;
+}
+
+static struct dfl_image_trigger *dfl_find_trigger(struct device *parent)
+{
+	struct dfl_hp_controller *hpc, *tmp;
+
+	mutex_lock(&dfl_priv->lock);
+
+	list_for_each_entry_safe(hpc, tmp, &dfl_priv->dev_list, node) {
+		struct dfl_image_reload *reload = &hpc->reload;
+
+		if (!reload->is_registered)
+			continue;
+
+		if (dfl_match_trigger_dev(reload, parent)) {
+			mutex_unlock(&dfl_priv->lock);
+			return &reload->trigger;
+		}
+	}
+	mutex_unlock(&dfl_priv->lock);
+
+	return NULL;
+}
+
+struct dfl_image_trigger *
+dfl_hp_register_trigger(const struct dfl_image_trigger_ops *ops,
+			struct device *parent, void *priv)
+{
+	struct dfl_image_reload *reload;
+	struct dfl_image_trigger *trigger;
+
+	if (!ops)
+		return ERR_PTR(-EINVAL);
+
+	trigger = dfl_find_trigger(parent);
+	if (!trigger)
+		return ERR_PTR(-EINVAL);
+
+	reload = to_dfl_trigger_reload(trigger);
+
+	mutex_lock(&reload->lock);
+	trigger->priv = priv;
+	trigger->parent = parent;
+	trigger->ops = ops;
+	trigger->is_registered = true;
+	mutex_unlock(&reload->lock);
+
+	return trigger;
+}
+EXPORT_SYMBOL_GPL(dfl_hp_register_trigger);
+
+void dfl_hp_unregister_trigger(struct dfl_image_trigger *trigger)
+{
+	struct dfl_image_reload *reload = to_dfl_trigger_reload(trigger);
+
+	mutex_lock(&reload->lock);
+	trigger->is_registered = false;
+	mutex_unlock(&reload->lock);
+}
+EXPORT_SYMBOL_GPL(dfl_hp_unregister_trigger);
+
 static void dfl_hp_add_reload_dev(struct dfl_hp_image_reload_priv *priv,
 				  struct dfl_hp_controller *hpc)
 {
