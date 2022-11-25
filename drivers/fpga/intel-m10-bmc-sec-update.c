@@ -8,12 +8,12 @@
 #include <linux/bitfield.h>
 #include <linux/device.h>
 #include <linux/firmware.h>
+#include <linux/fpga/dfl-image-reload.h>
 #include <linux/mfd/intel-m10-bmc.h>
 #include <linux/mod_devicetable.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/slab.h>
-#include "dfl-image-reload.h"
 
 struct m10bmc_sec {
 	struct device *dev;
@@ -29,7 +29,11 @@ struct m10bmc_sec {
 struct image_load {
 	const char *name;
 	int (*load_image)(struct m10bmc_sec *sec);
+	u32 wait_time_sec;
 };
+
+/* default wait seconds for FPGA/BMC image reload */
+#define RELOAD_DEFAULT_WAIT_SECS  10
 
 static DEFINE_XARRAY_ALLOC(fw_upload_xa);
 
@@ -161,7 +165,8 @@ static ssize_t m10bmc_available_images(struct dfl_image_trigger *trigger, char *
 	return count;
 }
 
-static int m10bmc_image_trigger(struct dfl_image_trigger *trigger, const char *buf)
+static int m10bmc_image_trigger(struct dfl_image_trigger *trigger, const char *buf,
+				u32 *wait_time_sec)
 {
 	struct m10bmc_sec *sec = trigger->priv;
 	const struct image_load *hndlr;
@@ -170,6 +175,7 @@ static int m10bmc_image_trigger(struct dfl_image_trigger *trigger, const char *b
 	for (hndlr = sec->image_load; hndlr->name; hndlr++) {
 		if (sysfs_streq(buf, hndlr->name)) {
 			ret = hndlr->load_image(sec);
+			*wait_time_sec = hndlr->wait_time_sec;
 			break;
 		}
 	}
@@ -436,14 +442,17 @@ static struct image_load m10bmc_image_load_hndlrs[] = {
 	{
 		.name = "bmc_factory",
 		.load_image = m10bmc_sec_bmc_image_load_1,
+		.wait_time_sec = RELOAD_DEFAULT_WAIT_SECS,
 	},
 	{
 		.name = "bmc_user",
 		.load_image = m10bmc_sec_bmc_image_load_0,
+		.wait_time_sec = RELOAD_DEFAULT_WAIT_SECS,
 	},
 	{
 		.name = "retimer_fw",
 		.load_image = m10bmc_sec_retimer_eeprom_load,
+		.wait_time_sec = RELOAD_DEFAULT_WAIT_SECS,
 	},
 	{}
 };

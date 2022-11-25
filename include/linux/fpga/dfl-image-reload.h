@@ -22,7 +22,8 @@ struct dfl_image_trigger;
  */
 struct dfl_image_trigger_ops {
 	ssize_t (*available_images)(struct dfl_image_trigger *trigger, char *buf);
-	int (*image_trigger)(struct dfl_image_trigger *trigger, const char *buf);
+	int (*image_trigger)(struct dfl_image_trigger *trigger, const char *buf,
+			     u32 *wait_time_sec);
 };
 
 /**

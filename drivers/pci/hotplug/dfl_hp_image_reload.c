@@ -136,6 +136,7 @@ static int dfl_hp_image_reload(struct hotplug_slot *slot, const char *buf)
 	struct dfl_image_reload *reload = &hpc->reload;
 	struct dfl_image_trigger *trigger = &reload->trigger;
 	struct pci_dev *pcidev;
+	u32 wait_time_sec;
 	int ret = -EINVAL;
 
 	if (!reload->is_registered || !trigger->is_registered)
@@ -166,7 +167,7 @@ static int dfl_hp_image_reload(struct hotplug_slot *slot, const char *buf)
 	}
 
 	/* 3. trigger image reload of BMC */
-	ret = trigger->ops->image_trigger(trigger, buf);
+	ret = trigger->ops->image_trigger(trigger, buf, &wait_time_sec);
 	if (ret) {
 		ctrl_err(ctrl, "image trigger failed\n");
 		goto out;
@@ -179,7 +180,7 @@ static int dfl_hp_image_reload(struct hotplug_slot *slot, const char *buf)
 	pciehp_unconfigure_device(ctrl, true);
 
 	/* 6. wait for FPGA/BMC reload done */
-	ssleep(10);
+	ssleep(wait_time_sec);
 
 	/* 7. turn off slot */
 	dfl_hp_set_slot_off(ctrl);
