@@ -22,6 +22,7 @@
 #include <linux/stddef.h>
 #include <linux/errno.h>
 #include <linux/aer.h>
+#include <linux/fpga/dfl-hp-image-reload.h>
 
 #include "dfl.h"
 
@@ -38,6 +39,15 @@
 
 struct cci_drvdata {
 	struct dfl_fpga_cdev *cdev;	/* container device */
+};
+
+static int dfl_reload_prepare(struct dfl_image_reload *dfl_reload)
+{
+	return 0;
+}
+
+static const struct dfl_image_reload_ops reload_ops = {
+	.reload_prepare = dfl_reload_prepare,
 };
 
 static void __iomem *cci_pci_ioremap_bar0(struct pci_dev *pcidev)
@@ -312,6 +322,7 @@ static int cci_enumerate_feature_devs(struct pci_dev *pcidev)
 	struct cci_drvdata *drvdata = pci_get_drvdata(pcidev);
 	struct dfl_fpga_enum_info *info;
 	struct dfl_fpga_cdev *cdev;
+	struct dfl_image_reload *dfl_reload;
 	int nvec, ret = 0;
 	int *irq_table;
 
@@ -346,16 +357,33 @@ static int cci_enumerate_feature_devs(struct pci_dev *pcidev)
 	if (ret)
 		goto irq_free_exit;
 
+	/* register reload dev only for PF0 */
+	if (dev_is_pf(&pcidev->dev)) {
+		dfl_reload = dfl_hp_register_image_reload(pcidev, dev_name(&pcidev->dev),
+							  &reload_ops);
+		if (IS_ERR(dfl_reload)) {
+			dev_err(&pcidev->dev, "dfl hotplug image reload register failure\n");
+			ret = PTR_ERR(dfl_reload);
+			goto irq_free_exit;
+		}
+	}
+
 	/* start enumeration with prepared enumeration information */
 	cdev = dfl_fpga_feature_devs_enumerate(info);
 	if (IS_ERR(cdev)) {
 		dev_err(&pcidev->dev, "Enumeration failure\n");
 		ret = PTR_ERR(cdev);
-		goto irq_free_exit;
+		goto free_reload;
 	}
+
+	if (dev_is_pf(&pcidev->dev))
+		cdev->dfl_reload = dfl_reload;
 
 	drvdata->cdev = cdev;
 
+free_reload:
+	if (ret && dev_is_pf(&pcidev->dev))
+		dfl_hp_unregister_image_reload(dfl_reload);
 irq_free_exit:
 	if (ret)
 		cci_pci_free_irq(pcidev);
@@ -444,8 +472,13 @@ static int cci_pci_sriov_configure(struct pci_dev *pcidev, int num_vfs)
 
 static void cci_pci_remove(struct pci_dev *pcidev)
 {
-	if (dev_is_pf(&pcidev->dev))
+	struct cci_drvdata *drvdata = pci_get_drvdata(pcidev);
+	struct dfl_fpga_cdev *cdev = drvdata->cdev;
+
+	if (dev_is_pf(&pcidev->dev)) {
 		cci_pci_sriov_configure(pcidev, 0);
+		dfl_hp_unregister_image_reload(cdev->dfl_reload);
+	}
 
 	cci_remove_feature_devs(pcidev);
 	pci_disable_pcie_error_reporting(pcidev);
