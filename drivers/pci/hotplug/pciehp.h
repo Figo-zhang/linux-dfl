@@ -195,6 +195,7 @@ int pciehp_get_raw_indicator_status(struct hotplug_slot *h_slot, u8 *status);
 int pciehp_slot_reset(struct pcie_device *dev);
 
 int pciehp_link_enable(struct controller *ctrl);
+int pciehp_link_disable(struct controller *ctrl);
 
 static inline const char *slot_name(struct controller *ctrl)
 {
