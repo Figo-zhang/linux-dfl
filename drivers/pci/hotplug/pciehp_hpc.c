@@ -328,6 +328,7 @@ int pciehp_check_link_status(struct controller *ctrl)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(pciehp_check_link_status);
 
 static int __pciehp_link_set(struct controller *ctrl, bool enable)
 {
@@ -346,10 +347,11 @@ static int __pciehp_link_set(struct controller *ctrl, bool enable)
 	return 0;
 }
 
-static int pciehp_link_enable(struct controller *ctrl)
+int pciehp_link_enable(struct controller *ctrl)
 {
 	return __pciehp_link_set(ctrl, true);
 }
+EXPORT_SYMBOL_GPL(pciehp_link_enable);
 
 int pciehp_get_raw_indicator_status(struct hotplug_slot *hotplug_slot,
 				    u8 *status)
@@ -482,6 +484,7 @@ int pciehp_query_power_fault(struct controller *ctrl)
 	pcie_capability_read_word(pdev, PCI_EXP_SLTSTA, &slot_status);
 	return !!(slot_status & PCI_EXP_SLTSTA_PFD);
 }
+EXPORT_SYMBOL_GPL(pciehp_query_power_fault);
 
 int pciehp_set_raw_indicator_status(struct hotplug_slot *hotplug_slot,
 				    u8 status)
