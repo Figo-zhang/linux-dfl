@@ -8169,6 +8169,7 @@ L:	linux-fpga@vger.kernel.org
 L:	linux-pci@vger.kernel.org
 S:	Maintained
 F:	Documentation/ABI/testing/sysfs-driver-fpgahp
+F:	Documentation/fpga/fpgahp.rst
 F:	drivers/pci/hotplug/fpgahp.c
 F:	include/linux/fpga/fpgahp_manager.h
 
