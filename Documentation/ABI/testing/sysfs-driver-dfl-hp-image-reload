@@ -1,0 +1,20 @@
+What:		/sys/bus/pci/slots/X-X/available_images
+Date:		Nov 2022
+KernelVersion:  6.1
+Contact:	Tianfei Zhang <tianfei.zhang@intel.com>
+Description:	Read-only. This file returns a space separated list of
+		key words that may be written into the image_load file
+		described below. These keywords decribe an FPGA, BMC,
+		or firmware image in FLASH or EEPROM storage that may
+		be loaded.
+
+What:		/sys/bus/pci/slots/X-X/image_reload
+Date:		Nov 2022
+KernelVersion:  6.1
+Contact:	Tianfei Zhang <tianfei.zhang@intel.com>
+Description:	Write-only. A key word may be written to this file to
+		trigger a reload of an FPGA, BMC, or firmware image from
+		FLASH or EEPROM. Refer to the available_images file for a
+		list of supported key words for the underlying device.
+		Writing an unsupported string to this file will result in
+		EINVAL being returned.
