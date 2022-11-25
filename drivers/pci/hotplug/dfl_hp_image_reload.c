@@ -14,6 +14,7 @@
 #include <linux/pm_runtime.h>
 #include <linux/uaccess.h>
 
+#include "../pci.h"
 #include "pciehp.h"
 
 struct dfl_hp_image_reload_priv {
@@ -36,12 +37,166 @@ static struct dfl_hp_image_reload_priv *dfl_priv;
 
 static int dfl_hp_available_images(struct hotplug_slot *slot, char *buf)
 {
+	struct controller *ctrl = to_ctrl(slot);
+	struct dfl_hp_controller *hpc = to_hpc(ctrl);
+	struct dfl_image_reload *reload = &hpc->reload;
+	struct dfl_image_trigger *trigger = &reload->trigger;
+	ssize_t count;
+
+	if (!reload->is_registered || !trigger->is_registered)
+		return -EINVAL;
+
+	if (!trigger->ops->available_images)
+		return -EINVAL;
+
+	mutex_lock(&ctrl->state_lock);
+	count = trigger->ops->available_images(trigger, buf);
+	mutex_unlock(&ctrl->state_lock);
+
+	return count;
+}
+
+static void dfl_hp_remove_sibling_pci_dev(struct pci_dev *pcidev)
+{
+	struct pci_bus *bus = pcidev->bus;
+	struct pci_dev *sibling, *tmp;
+
+	if (bus) {
+		list_for_each_entry_safe_reverse(sibling, tmp,
+						 &bus->devices, bus_list)
+			if (sibling != pcidev)
+				pci_stop_and_remove_bus_device_locked(sibling);
+	}
+}
+
+static void dfl_hp_set_slot_off(struct controller *ctrl)
+{
+	/*
+	 * Turn off slot
+	 */
+	pciehp_power_off_slot(ctrl);
+
+	/*
+	 * After turning power off, we must wait for at least 1 second
+	 * before taking any action that relies on power having been
+	 * removed from the slot/adapter.
+	 */
+	msleep(1000);
+}
+
+static int dfl_hp_rescan_slot(struct controller *ctrl)
+{
+	int retval = 0;
+	struct pci_bus *parent = ctrl->pcie->port->subordinate;
+
+	/* Check link training status */
+	retval = pciehp_check_link_status(ctrl);
+	if (retval)
+		goto err_exit;
+
+	/* Check for a power fault */
+	if (ctrl->power_fault_detected || pciehp_query_power_fault(ctrl)) {
+		ctrl_err(ctrl, "Slot(%s): Power fault\n", slot_name(ctrl));
+		retval = -EIO;
+		goto err_exit;
+	}
+
+	retval = pciehp_configure_device(ctrl);
+	if (retval) {
+		if (retval != -EEXIST) {
+			ctrl_err(ctrl, "Cannot add device at %04x:%02x:00\n",
+				 pci_domain_nr(parent), parent->number);
+			goto err_exit;
+		}
+	}
+
 	return 0;
+
+err_exit:
+	dfl_hp_set_slot_off(ctrl);
+	return retval;
 }
 
 static int dfl_hp_image_reload(struct hotplug_slot *slot, const char *buf)
 {
-	return 0;
+	struct controller *ctrl = to_ctrl(slot);
+	struct dfl_hp_controller *hpc = to_hpc(ctrl);
+	struct dfl_image_reload *reload = &hpc->reload;
+	struct dfl_image_trigger *trigger = &reload->trigger;
+	struct pci_dev *pcidev;
+	u32 wait_time_sec;
+	int ret = -EINVAL;
+
+	if (!reload->is_registered || !trigger->is_registered)
+		return -EINVAL;
+
+	if (!trigger->ops->image_trigger)
+		return -EINVAL;
+
+	pcidev = reload->priv;
+	if (!pcidev)
+		return -EINVAL;
+
+	mutex_lock(&ctrl->state_lock);
+	pm_runtime_get_sync(&ctrl->pcie->port->dev);
+
+	reload->state = IMAGE_RELOAD_RELOADING;
+
+	/* 1. remove all PFs and VFs except the PF0*/
+	dfl_hp_remove_sibling_pci_dev(pcidev);
+
+	/* 2. remove all non-reserved devices */
+	if (reload->ops->reload_prepare) {
+		ret = reload->ops->reload_prepare(reload);
+		if (ret) {
+			ctrl_err(ctrl, "prepare image reload failed\n");
+			goto trigger_fail;
+		}
+	}
+
+	/* 3. trigger image reload of BMC */
+	ret = trigger->ops->image_trigger(trigger, buf, &wait_time_sec);
+	if (ret) {
+		ctrl_err(ctrl, "image trigger failed\n");
+		goto trigger_fail;
+	}
+
+	/* 4. disable link of hotplug bridge */
+	pciehp_link_disable(ctrl);
+
+	/* 5. remove PCI devices below hotplug bridge */
+	pciehp_unconfigure_device(ctrl, true);
+
+	/* 6. wait for FPGA/BMC reload done */
+	ssleep(wait_time_sec);
+
+	/* 7. turn off slot */
+	dfl_hp_set_slot_off(ctrl);
+
+	/* 8. turn on slot*/
+	ret = pciehp_power_on_slot(ctrl);
+	if (ret)
+		goto slot_fail;
+
+	/* 9. enumerate PCI devices below a hotplug bridge*/
+	ret = dfl_hp_rescan_slot(ctrl);
+	if (ret)
+		goto slot_fail;
+
+	reload->state = IMAGE_RELOAD_DONE;
+
+	pm_runtime_put(&ctrl->pcie->port->dev);
+	mutex_unlock(&ctrl->state_lock);
+
+	return ret;
+
+trigger_fail:
+	dfl_hp_rescan_slot(ctrl);
+slot_fail:
+	reload->state = IMAGE_RELOAD_FAIL;
+	pm_runtime_put(&ctrl->pcie->port->dev);
+	mutex_unlock(&ctrl->state_lock);
+	return ret;
 }
 
 static bool dfl_match_trigger_dev(struct dfl_image_reload *reload, struct device *parent)
