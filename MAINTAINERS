@@ -8072,6 +8072,7 @@ M:	Tianfei Zhang <tianfei.zhang@intel.com>
 L:	linux-fpga@vger.kernel.org
 L:	linux-pci@vger.kernel.org
 S:	Maintained
+F:	Documentation/ABI/testing/sysfs-driver-dfl-hp-image-reload
 F:	drivers/pci/hotplug/dfl_hp_image_reload.c
 F:	include/linux/fpga/dfl-hp-image-reload.h
 
