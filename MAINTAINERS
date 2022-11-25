@@ -8066,6 +8066,7 @@ L:	linux-fpga@vger.kernel.org
 L:	linux-pci@vger.kernel.org
 S:	Maintained
 F:	drivers/pci/hotplug/dfl_hp_image_reload.c
+F:	include/linux/fpga/dfl-hp-image-reload.h
 
 FPGA MANAGER FRAMEWORK
 M:	Moritz Fischer <mdf@kernel.org>
