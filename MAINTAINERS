@@ -8060,6 +8060,13 @@ F:	drivers/uio/uio_dfl.c
 F:	include/linux/dfl.h
 F:	include/uapi/linux/fpga-dfl.h
 
+INTEL FPGA DFL Hotplug Image Reload Driver
+M:	Tianfei Zhang <tianfei.zhang@intel.com>
+L:	linux-fpga@vger.kernel.org
+L:	linux-pci@vger.kernel.org
+S:	Maintained
+F:	drivers/pci/hotplug/dfl_hp_image_reload.c
+
 FPGA MANAGER FRAMEWORK
 M:	Moritz Fischer <mdf@kernel.org>
 M:	Wu Hao <hao.wu@intel.com>
