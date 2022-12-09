@@ -8163,6 +8163,14 @@ F:	drivers/uio/uio_dfl.c
 F:	include/linux/dfl.h
 F:	include/uapi/linux/fpga-dfl.h
 
+FPGA PCI Hotplug Driver
+M:	Tianfei Zhang <tianfei.zhang@intel.com>
+L:	linux-fpga@vger.kernel.org
+L:	linux-pci@vger.kernel.org
+S:	Maintained
+F:	drivers/pci/hotplug/fpgahp.c
+F:	include/linux/fpga/fpgahp_manager.h
+
 FPGA MANAGER FRAMEWORK
 M:	Moritz Fischer <mdf@kernel.org>
 M:	Wu Hao <hao.wu@intel.com>
