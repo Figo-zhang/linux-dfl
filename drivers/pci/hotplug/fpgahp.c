@@ -9,6 +9,7 @@
 #include <linux/module.h>
 #include <linux/pci.h>
 #include <linux/pci_hotplug.h>
+#include <linux/pm_runtime.h>
 
 #include "pciehp.h"
 
@@ -25,7 +26,181 @@ struct fpgahp_controller {
 	struct pcie_device *pcie;
 	struct controller ctrl;
 	struct pci_dev *hotplug_bridge;
+	struct mutex lock;  /* parallel access into image_load callback */
 };
+
+static inline struct fpgahp_controller *to_fhpc(struct controller *ctrl)
+{
+	return container_of(ctrl, struct fpgahp_controller, ctrl);
+}
+
+static int fpgahp_available_images(struct hotplug_slot *slot, char *buf)
+{
+	struct controller *ctrl = to_ctrl(slot);
+	struct fpgahp_controller *fhpc = to_fhpc(ctrl);
+	struct fpgahp_manager *mgr = &fhpc->mgr;
+	struct fpgahp_bmc_device *bmc = &mgr->bmc;
+	ssize_t count;
+
+	mutex_lock(&mgr->lock);
+
+	if (!mgr->registered || !bmc->registered)
+		goto err_unlock;
+
+	if (!bmc->ops->available_images)
+		goto err_unlock;
+
+	count = bmc->ops->available_images(bmc, buf);
+
+	mutex_unlock(&mgr->lock);
+
+	return count;
+
+err_unlock:
+	mutex_unlock(&mgr->lock);
+	return -EINVAL;
+}
+
+static void fpgahp_remove_sibling_pci_dev(struct pci_dev *pcidev)
+{
+	struct pci_bus *bus = pcidev->bus;
+	struct pci_dev *sibling, *tmp;
+
+	if (!bus)
+		return;
+
+	list_for_each_entry_safe_reverse(sibling, tmp, &bus->devices, bus_list)
+		if (sibling != pcidev)
+			pci_stop_and_remove_bus_device_locked(sibling);
+}
+
+static int fpgahp_link_enable(struct controller *ctrl)
+{
+	int retval;
+
+	retval = pciehp_link_enable(ctrl);
+	if (retval) {
+		ctrl_err(ctrl, "Can not enable the link!\n");
+		return retval;
+	}
+
+	retval = pciehp_check_link_status(ctrl);
+	if (retval) {
+		ctrl_err(ctrl, "Check link status fail!\n");
+		return retval;
+	}
+
+	retval = pciehp_query_power_fault(ctrl);
+	if (retval)
+		ctrl_err(ctrl, "Slot(%s): Power fault\n", slot_name(ctrl));
+
+	return retval;
+}
+
+static int fpgahp_rescan_slot(struct controller *ctrl)
+{
+	int retval;
+	struct pci_bus *parent = ctrl->pcie->port->subordinate;
+
+	retval = pciehp_configure_device(ctrl);
+	if (retval && retval != -EEXIST)
+		ctrl_err(ctrl, "Cannot add device at %04x:%02x:00\n",
+			 pci_domain_nr(parent), parent->number);
+
+	return retval;
+}
+
+static int __fpgahp_image_load(struct fpgahp_controller *fhpc, const char *buf)
+{
+	struct pci_dev *hotplug_bridge = fhpc->hotplug_bridge;
+	struct fpgahp_manager *mgr = &fhpc->mgr;
+	struct fpgahp_bmc_device *bmc = &mgr->bmc;
+	struct controller *ctrl = &fhpc->ctrl;
+	struct pci_dev *pcidev = mgr->priv;
+	u32 wait_time_msec;
+	int ret;
+
+	ret = pm_runtime_resume_and_get(&hotplug_bridge->dev);
+	if (ret)
+		return ret;
+
+	mutex_lock(&mgr->lock);
+
+	if (!pcidev || !mgr->registered || !bmc->registered || !bmc->ops->image_trigger) {
+		ret = -EINVAL;
+		goto out_unlock;
+	}
+
+	mgr->state = FPGAHP_MGR_LOADING;
+
+	/* 1. remove all PFs and VFs except the PF0 */
+	fpgahp_remove_sibling_pci_dev(pcidev);
+
+	/* 2. remove all non-reserved devices */
+	if (mgr->ops->hotplug_prepare) {
+		ret = mgr->ops->hotplug_prepare(mgr);
+		if (ret) {
+			ctrl_err(ctrl, "Prepare hotplug failed\n");
+			goto out_unlock;
+		}
+	}
+
+	/* 3. trigger loading a new image of BMC */
+	ret = bmc->ops->image_trigger(bmc, buf, &wait_time_msec);
+	if (ret) {
+		ctrl_err(ctrl, "Image trigger failed\n");
+		goto out_unlock;
+	}
+
+	/* 4. disable link of hotplug bridge */
+	pciehp_link_disable(ctrl);
+
+	/*
+	 * unlock the mrg->lock temporarily to avoid the dead lock while re-gain
+	 * the same lock on fpgahp_unregister() during remove PCI devices below the
+	 * hotplug bridge
+	 */
+	mutex_unlock(&mgr->lock);
+
+	/* 5. remove PCI devices below hotplug bridge */
+	pciehp_unconfigure_device(ctrl, true);
+
+	/* 6. wait for FPGA/BMC load done */
+	msleep(wait_time_msec);
+
+	mutex_lock(&mgr->lock);
+
+	/* 7. re-enable link */
+	ret = fpgahp_link_enable(ctrl);
+
+out_unlock:
+	if (ret)
+		mgr->state = FPGAHP_MGR_HP_FAIL;
+	else
+		mgr->state = FPGAHP_MGR_LOAD_DONE;
+
+	mutex_unlock(&mgr->lock);
+
+	/* re-enumerate PCI devices below hotplug bridge */
+	if (!ret)
+		ret = fpgahp_rescan_slot(ctrl);
+
+	pm_runtime_put(&hotplug_bridge->dev);
+	return ret;
+}
+
+static int fpgahp_image_load(struct hotplug_slot *slot, const char *buf)
+{
+	struct controller *ctrl = to_ctrl(slot);
+	struct fpgahp_controller *fhpc = to_fhpc(ctrl);
+	int ret;
+
+	mutex_lock(&fhpc->lock);
+	ret = __fpgahp_image_load(fhpc, buf);
+	mutex_unlock(&fhpc->lock);
+
+	return ret;
+}
 
 static void fpgahp_add_fhpc(struct fpgahp_controller *fhpc)
 {
@@ -128,6 +303,8 @@ static int fpgahp_init_controller(struct controller *ctrl, struct pcie_device *d
 }
 
 static const struct hotplug_slot_ops fpgahp_slot_ops = {
+	.available_images	= fpgahp_available_images,
+	.image_load		= fpgahp_image_load,
 };
 
 static int fpgahp_init_slot(struct controller *ctrl)
@@ -183,6 +360,7 @@ fpgahp_create_new_fhpc(struct fpgahp_controller *fhpc, struct pci_dev *hotplug_b
 	}
 
 	mutex_init(&mgr->lock);
+	mutex_init(&fhpc->lock);
 
 	fpgahp_add_fhpc(fhpc);
 
@@ -345,3 +523,4 @@ module_exit(fpgahp_exit);
 MODULE_DESCRIPTION("FPGA PCI Hotplug Manager Driver");
 MODULE_AUTHOR("Tianfei Zhang <tianfei.zhang@intel.com>");
 MODULE_LICENSE("GPL");
+MODULE_IMPORT_NS(PCIEHP);
