@@ -36,12 +36,152 @@ static inline struct fpgahp_controller *to_hpc(struct controller *ctrl)
 
 static int fpgahp_available_images(struct hotplug_slot *slot, char *buf)
 {
+	struct controller *ctrl = to_ctrl(slot);
+	struct fpgahp_controller *hpc = to_hpc(ctrl);
+	struct fpgahp_manager *mgr = &hpc->mgr;
+	struct fpgahp_bmc_device *bmc = &mgr->bmc;
+	ssize_t count;
+
+	if (!mgr->is_registered || !bmc->is_registered)
+		return -EINVAL;
+
+	if (!bmc->ops->available_images)
+		return -EINVAL;
+
+	mutex_lock(&ctrl->state_lock);
+	count = bmc->ops->available_images(bmc, buf);
+	mutex_unlock(&ctrl->state_lock);
+
+	return count;
+}
+
+static void fpgahp_remove_sibling_pci_dev(struct pci_dev *pcidev)
+{
+	struct pci_bus *bus = pcidev->bus;
+	struct pci_dev *sibling, *tmp;
+
+	if (bus) {
+		list_for_each_entry_safe_reverse(sibling, tmp,
+						 &bus->devices, bus_list)
+			if (sibling != pcidev)
+				pci_stop_and_remove_bus_device_locked(sibling);
+	}
+}
+
+static int fpgahp_link_enable(struct controller *ctrl)
+{
+	int retval = 0;
+
+	retval = pciehp_link_enable(ctrl);
+	if (retval) {
+		ctrl_err(ctrl, "Can not enable the link!\n");
+		return retval;
+	}
+
+	/* Check link training status */
+	retval = pciehp_check_link_status(ctrl);
+	if (retval) {
+		ctrl_err(ctrl, "check link status fail!\n");
+		return retval;
+	}
+
+	/* Check for a power fault */
+	if (pciehp_query_power_fault(ctrl)) {
+		ctrl_err(ctrl, "Slot(%s): Power fault\n", slot_name(ctrl));
+		return retval;
+	}
+
+	return 0;
+}
+
+static int fpgahp_rescan_slot(struct controller *ctrl)
+{
+	int retval = 0;
+	struct pci_bus *parent = ctrl->pcie->port->subordinate;
+
+	retval = pciehp_configure_device(ctrl);
+	if (retval && retval != -EEXIST) {
+		ctrl_err(ctrl, "Cannot add device at %04x:%02x:00\n",
+			 pci_domain_nr(parent), parent->number);
+		return retval;
+	}
+
 	return 0;
 }
 
 static int fpgahp_image_load(struct hotplug_slot *slot, const char *buf)
 {
-	return 0;
+	struct controller *ctrl = to_ctrl(slot);
+	struct fpgahp_controller *hpc = to_hpc(ctrl);
+	struct fpgahp_manager *mgr = &hpc->mgr;
+	struct fpgahp_bmc_device *bmc = &mgr->bmc;
+	struct pci_dev *pcidev;
+	u32 wait_time_msec;
+	int ret = -EINVAL;
+
+	if (!mgr->is_registered || !bmc->is_registered)
+		return -EINVAL;
+
+	if (!bmc->ops->image_trigger)
+		return -EINVAL;
+
+	pcidev = mgr->priv;
+	if (!pcidev)
+		return -EINVAL;
+
+	mutex_lock(&ctrl->state_lock);
+	pm_runtime_get_sync(&ctrl->pcie->port->dev);
+
+	mgr->state = FPGAHP_MGR_LOADING;
+
+	/* 1. remove all PFs and VFs except the PF0 */
+	fpgahp_remove_sibling_pci_dev(pcidev);
+
+	/* 2. remove all non-reserved devices */
+	if (mgr->ops->hotplug_prepare) {
+		ret = mgr->ops->hotplug_prepare(mgr);
+		if (ret) {
+			ctrl_err(ctrl, "prepare hotplug failed\n");
+			fpgahp_rescan_slot(ctrl);
+			goto out;
+		}
+	}
+
+	/* 3. trigger loading a new image of BMC */
+	ret = bmc->ops->image_trigger(bmc, buf, &wait_time_msec);
+	if (ret) {
+		ctrl_err(ctrl, "image trigger failed\n");
+		fpgahp_rescan_slot(ctrl);
+		goto out;
+	}
+
+	/* 4. disable link of hotplug bridge */
+	pciehp_link_disable(ctrl);
+
+	/* 5. remove PCI devices below hotplug bridge */
+	pciehp_unconfigure_device(ctrl, true);
+
+	/* 6. wait for FPGA/BMC load done */
+	msleep(wait_time_msec);
+
+	/* 7. re-enable link */
+	ret = fpgahp_link_enable(ctrl);
+	if (ret)
+		goto out;
+
+	/* 8. enumerate PCI devices below hotplug bridge */
+	ret = fpgahp_rescan_slot(ctrl);
+
+out:
+	if (ret)
+		mgr->state = FPGAHP_MGR_HP_FAIL;
+	else
+		mgr->state = FPGAHP_MGR_LOAD_DONE;
+
+	pm_runtime_put(&ctrl->pcie->port->dev);
+	mutex_unlock(&ctrl->state_lock);
+
+	return ret;
 }
 
 static bool fpgahp_match_bmc_dev(struct fpgahp_manager *mgr, struct device *parent)
