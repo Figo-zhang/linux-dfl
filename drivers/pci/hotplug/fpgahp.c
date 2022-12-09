@@ -44,6 +44,95 @@ static int fpgahp_image_load(struct hotplug_slot *slot, const char *buf)
 	return 0;
 }
 
+static bool fpgahp_match_bmc_dev(struct fpgahp_manager *mgr, struct device *parent)
+{
+	struct pci_dev *pcidev = mgr->priv;
+	struct device *dev = &pcidev->dev;
+
+	/*
+	 * bmc device (like security dev) is a subordinate device under
+	 * pci device, so check if the parent device of bmc device recursively
+	 */
+	while (parent) {
+		if (parent == dev)
+			return true;
+		parent = parent->parent;
+	}
+
+	return false;
+}
+
+static struct fpgahp_bmc_device *fpgahp_find_bmc(struct device *parent)
+{
+	struct fpgahp_controller *hpc, *tmp;
+
+	mutex_lock(&fpgahp_priv->lock);
+
+	list_for_each_entry_safe(hpc, tmp, &fpgahp_priv->dev_list, node) {
+		struct fpgahp_manager *mgr = &hpc->mgr;
+
+		if (!mgr->is_registered)
+			continue;
+
+		if (fpgahp_match_bmc_dev(mgr, parent)) {
+			mutex_unlock(&fpgahp_priv->lock);
+			return &mgr->bmc;
+		}
+	}
+	mutex_unlock(&fpgahp_priv->lock);
+
+	return NULL;
+}
+
+/**
+ * fpgahp_bmc_device_register - register fpga bmc device into fpgahp driver
+ * @ops: pointer to structure of fpgahp manager ops
+ * @dev: device struct of bmc
+ * @priv: private data for fpga device
+ *
+ * Return: pointer to struct fpgahp_manager pointer or ERR_PTR()
+ */
+struct fpgahp_bmc_device *
+fpgahp_bmc_device_register(const struct fpgahp_bmc_ops *ops,
+			   struct device *dev, void *priv)
+{
+	struct fpgahp_manager *mgr;
+	struct fpgahp_bmc_device *bmc;
+
+	if (!ops)
+		return ERR_PTR(-EINVAL);
+
+	bmc = fpgahp_find_bmc(dev);
+	if (!bmc)
+		return ERR_PTR(-EINVAL);
+
+	mgr = to_fpgahp_mgr(bmc);
+
+	mutex_lock(&mgr->lock);
+	bmc->priv = priv;
+	bmc->parent = dev;
+	bmc->ops = ops;
+	bmc->is_registered = true;
+	mutex_unlock(&mgr->lock);
+
+	return bmc;
+}
+EXPORT_SYMBOL_GPL(fpgahp_bmc_device_register);
+
+/**
+ * fpgahp_bmc_device_unregister - unregister fpga bmc device from fpgahp driver
+ * @bmc: point to the fpgahp_bmc_device
+ */
+void fpgahp_bmc_device_unregister(struct fpgahp_bmc_device *bmc)
+{
+	struct fpgahp_manager *mgr = to_fpgahp_mgr(bmc);
+
+	mutex_lock(&mgr->lock);
+	bmc->is_registered = false;
+	mutex_unlock(&mgr->lock);
+}
+EXPORT_SYMBOL_GPL(fpgahp_bmc_device_unregister);
+
 static void fpgahp_add_hpc(struct fpgahp_priv *priv,
 			   struct fpgahp_controller *hpc)
 {
