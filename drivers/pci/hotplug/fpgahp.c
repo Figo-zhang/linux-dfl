@@ -31,6 +31,95 @@ static void fpgahp_add_fhpc(struct fpgahp_controller *fhpc)
 	mutex_unlock(&fhpc_lock);
 }
 
+static bool fpgahp_match_bmc_dev(struct fpgahp_manager *mgr, struct device *parent)
+{
+	struct pci_dev *pcidev = mgr->priv;
+	struct device *dev = &pcidev->dev;
+
+	/*
+	 * BMC device (like security dev) is a subordinate device under
+	 * PCI device, so check if the parent device of BMC device recursively
+	 */
+	while (parent) {
+		if (parent == dev)
+			return true;
+		parent = parent->parent;
+	}
+
+	return false;
+}
+
+static struct fpgahp_bmc_device *fpgahp_find_bmc(struct device *parent)
+{
+	struct fpgahp_controller *fhpc;
+
+	mutex_lock(&fhpc_lock);
+
+	list_for_each_entry(fhpc, &fhpc_list, node) {
+		struct fpgahp_manager *mgr = &fhpc->mgr;
+
+		if (!mgr->registered)
+			continue;
+
+		if (fpgahp_match_bmc_dev(mgr, parent)) {
+			mutex_unlock(&fhpc_lock);
+			return &mgr->bmc;
+		}
+	}
+	mutex_unlock(&fhpc_lock);
+
+	return NULL;
+}
+
+/**
+ * fpgahp_bmc_device_register - register FPGA BMC device into fpgahp driver
+ * @ops: pointer to structure of fpgahp manager ops
+ * @dev: device struct of BMC device
+ * @priv: private data for FPGA device
+ *
+ * Return: pointer to struct fpgahp_manager pointer or ERR_PTR()
+ */
+struct fpgahp_bmc_device *
+fpgahp_bmc_device_register(const struct fpgahp_bmc_ops *ops,
+			   struct device *dev, void *priv)
+{
+	struct fpgahp_manager *mgr;
+	struct fpgahp_bmc_device *bmc;
+
+	if (!ops)
+		return ERR_PTR(-EINVAL);
+
+	bmc = fpgahp_find_bmc(dev);
+	if (!bmc)
+		return ERR_PTR(-EINVAL);
+
+	mgr = to_fpgahp_mgr(bmc);
+
+	mutex_lock(&mgr->lock);
+	bmc->priv = priv;
+	bmc->parent = dev;
+	bmc->ops = ops;
+	bmc->registered = true;
+	mutex_unlock(&mgr->lock);
+
+	return bmc;
+}
+EXPORT_SYMBOL_GPL(fpgahp_bmc_device_register);
+
+/**
+ * fpgahp_bmc_device_unregister - unregister FPGA BMC device from fpgahp driver
+ * @bmc: point to the fpgahp_bmc_device
+ */
+void fpgahp_bmc_device_unregister(struct fpgahp_bmc_device *bmc)
+{
+	struct fpgahp_manager *mgr = to_fpgahp_mgr(bmc);
+
+	mutex_lock(&mgr->lock);
+	bmc->registered = false;
+	mutex_unlock(&mgr->lock);
+}
+EXPORT_SYMBOL_GPL(fpgahp_bmc_device_unregister);
+
 static int fpgahp_init_controller(struct controller *ctrl, struct pcie_device *dev)
 {
 	struct pci_dev *hotplug_bridge = dev->port;
