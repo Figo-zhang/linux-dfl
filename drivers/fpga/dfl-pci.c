@@ -23,6 +23,8 @@
 #include <linux/errno.h>
 #include <linux/aer.h>
 
+#include <linux/fpga/fpgahp_manager.h>
+
 #include "dfl.h"
 
 #define DRV_VERSION	"0.8"
@@ -38,6 +40,9 @@
 
 struct cci_drvdata {
 	struct dfl_fpga_cdev *cdev;	/* container device */
+};
+
+static const struct fpgahp_manager_ops fpgahp_ops = {
 };
 
 static void __iomem *cci_pci_ioremap_bar0(struct pci_dev *pcidev)
@@ -117,6 +122,15 @@ static struct pci_device_id cci_pcie_id_tbl[] = {
 	{0,}
 };
 MODULE_DEVICE_TABLE(pci, cci_pcie_id_tbl);
+
+/*
+ * List the FPGA cards which have some ethernet controllers connected to a PCI
+ * switch like PAC N3000, used to find hotplug bridge for fpgahp driver.
+ */
+static const struct pci_device_id has_pci_switch_devids[] = {
+	{ PCI_VDEVICE(INTEL, PCIE_DEVICE_ID_INTEL_PAC_N3000) },
+	{}
+};
 
 static int cci_init_drvdata(struct pci_dev *pcidev)
 {
@@ -306,12 +320,33 @@ static int find_dfls_by_default(struct pci_dev *pcidev,
 	return ret;
 }
 
+/*
+ * On N3000 Card, FPGA devices like PFs/VFs and some ethernet controllers
+ * are connected to a PCI switch, so the hotplug bridge on the root port of
+ * FPGA PF0 PCI device.
+ */
+static struct pci_dev *cci_find_hotplug_bridge(struct pci_dev *pcidev)
+{
+	struct pci_dev *hotplug_bridge;
+
+	if (!pci_match_id(has_pci_switch_devids, pcidev))
+		return pcidev;
+
+	hotplug_bridge = pcie_find_root_port(pcidev);
+	if (!hotplug_bridge)
+		return ERR_PTR(-EINVAL);
+
+	return hotplug_bridge;
+}
+
 /* enumerate feature devices under pci device */
 static int cci_enumerate_feature_devs(struct pci_dev *pcidev)
 {
 	struct cci_drvdata *drvdata = pci_get_drvdata(pcidev);
 	struct dfl_fpga_enum_info *info;
+	struct pci_dev *hotplug_bridge;
 	struct dfl_fpga_cdev *cdev;
+	struct fpgahp_manager *mgr;
 	int nvec, ret = 0;
 	int *irq_table;
 
@@ -346,16 +381,40 @@ static int cci_enumerate_feature_devs(struct pci_dev *pcidev)
 	if (ret)
 		goto irq_free_exit;
 
+	/* register hotplug bridge of PF0 device into fpgahp driver */
+	if (dev_is_pf(&pcidev->dev)) {
+		hotplug_bridge = cci_find_hotplug_bridge(pcidev);
+		if (!hotplug_bridge) {
+			dev_err(&pcidev->dev, "Found hotplug bridge failure\n");
+			ret = PTR_ERR(hotplug_bridge);
+			goto irq_free_exit;
+		}
+
+		mgr = fpgahp_register(hotplug_bridge, dev_name(&pcidev->dev),
+				      &fpgahp_ops, pcidev);
+		if (IS_ERR(mgr)) {
+			dev_err(&pcidev->dev, "Register fpga hotplug failure\n");
+			ret = PTR_ERR(mgr);
+			goto irq_free_exit;
+		}
+	}
+
 	/* start enumeration with prepared enumeration information */
 	cdev = dfl_fpga_feature_devs_enumerate(info);
 	if (IS_ERR(cdev)) {
 		dev_err(&pcidev->dev, "Enumeration failure\n");
 		ret = PTR_ERR(cdev);
-		goto irq_free_exit;
+		goto free_register;
 	}
+
+	if (dev_is_pf(&pcidev->dev))
+		cdev->fpgahp_mgr = mgr;
 
 	drvdata->cdev = cdev;
 
+free_register:
+	if (ret && dev_is_pf(&pcidev->dev))
+		fpgahp_unregister(mgr);
 irq_free_exit:
 	if (ret)
 		cci_pci_free_irq(pcidev);
@@ -444,8 +503,13 @@ static int cci_pci_sriov_configure(struct pci_dev *pcidev, int num_vfs)
 
 static void cci_pci_remove(struct pci_dev *pcidev)
 {
-	if (dev_is_pf(&pcidev->dev))
+	struct cci_drvdata *drvdata = pci_get_drvdata(pcidev);
+	struct dfl_fpga_cdev *cdev = drvdata->cdev;
+
+	if (dev_is_pf(&pcidev->dev)) {
 		cci_pci_sriov_configure(pcidev, 0);
+		fpgahp_unregister(cdev->fpgahp_mgr);
+	}
 
 	cci_remove_feature_devs(pcidev);
 	pci_disable_pcie_error_reporting(pcidev);
@@ -464,3 +528,4 @@ module_pci_driver(cci_pci_driver);
 MODULE_DESCRIPTION("FPGA DFL PCIe Device Driver");
 MODULE_AUTHOR("Intel Corporation");
 MODULE_LICENSE("GPL v2");
+MODULE_IMPORT_NS(FPGAHP);
