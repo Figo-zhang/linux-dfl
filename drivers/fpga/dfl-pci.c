@@ -42,7 +42,24 @@ struct cci_drvdata {
 	struct dfl_fpga_cdev *cdev;	/* container device */
 };
 
+static int dfl_hp_prepare(struct fpgahp_manager *mgr)
+{
+	struct pci_dev *pcidev = mgr->priv;
+	struct cci_drvdata *drvdata = pci_get_drvdata(pcidev);
+	struct dfl_fpga_cdev *cdev = drvdata->cdev;
+	struct platform_device *fme = to_platform_device(cdev->fme_dev);
+
+	/* remove all of non-reserved fme devices of PF0 */
+	dfl_reload_remove_non_reserved_devs(fme, mgr->bmc.device);
+
+	/* remove all AFU devices of PF0 */
+	dfl_reload_remove_afus(cdev);
+
+	return 0;
+}
+
 static const struct fpgahp_manager_ops fpgahp_ops = {
+	.hotplug_prepare = dfl_hp_prepare,
 };
 
 static void __iomem *cci_pci_ioremap_bar0(struct pci_dev *pcidev)
@@ -529,3 +546,4 @@ MODULE_DESCRIPTION("FPGA DFL PCIe Device Driver");
 MODULE_AUTHOR("Intel Corporation");
 MODULE_LICENSE("GPL v2");
 MODULE_IMPORT_NS(FPGAHP);
+MODULE_IMPORT_NS(DFL_CORE);
