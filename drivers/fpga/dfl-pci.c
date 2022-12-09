@@ -43,6 +43,18 @@ struct cci_drvdata {
 
 static int dfl_hp_prepare(struct fpgahp_manager *mgr)
 {
+	struct device *bmc_dev = mgr->bmc.parent;
+	struct pci_dev *pcidev = mgr->priv;
+	struct cci_drvdata *drvdata = pci_get_drvdata(pcidev);
+	struct dfl_fpga_cdev *cdev = drvdata->cdev;
+	struct platform_device *fme = to_platform_device(cdev->fme_dev);
+
+	/* remove all of non-reserved fme devices of PF0 */
+	dfl_reload_remove_non_reserved_devs(fme, bmc_dev);
+
+	/* remove all AFU devices of PF0 */
+	dfl_reload_remove_afus(cdev);
+
 	return 0;
 }
 
