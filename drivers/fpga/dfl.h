@@ -469,6 +469,7 @@ void dfl_fpga_enum_info_free(struct dfl_fpga_enum_info *info);
  * @fme_dev: FME feature device under this container device.
  * @lock: mutex lock to protect the port device list.
  * @port_dev_list: list of all port feature devices under this container device.
+ * @fpgahp_mgr: fpga hotplug manager.
  * @released_port_num: released port number under this container device.
  */
 struct dfl_fpga_cdev {
@@ -477,6 +478,7 @@ struct dfl_fpga_cdev {
 	struct device *fme_dev;
 	struct mutex lock;
 	struct list_head port_dev_list;
+	struct fpgahp_manager *fpgahp_mgr;
 	int released_port_num;
 };
 
