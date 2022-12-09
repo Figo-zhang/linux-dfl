@@ -212,7 +212,7 @@ config FPGA_DFL_NIOS_INTEL_PAC_N3000
 
 config FPGA_DFL_PCI
 	tristate "FPGA DFL PCIe Device Driver"
-	depends on PCI && FPGA_DFL && HOTPLUG_PCI_DFL_RELOAD
+	depends on PCI && FPGA_DFL && HOTPLUG_PCI_FPGA
 	help
 	  Select this option to enable PCIe driver for PCIe-based
 	  Field-Programmable Gate Array (FPGA) solutions which implement
@@ -246,7 +246,7 @@ config FPGA_MGR_VERSAL_FPGA
 
 config FPGA_M10_BMC_SEC_UPDATE
 	tristate "Intel MAX10 BMC Secure Update driver"
-	depends on MFD_INTEL_M10_BMC && FW_UPLOAD && HOTPLUG_PCI_DFL_RELOAD
+	depends on MFD_INTEL_M10_BMC && FW_UPLOAD && HOTPLUG_PCI_FPGA
 	help
 	  Secure update support for the Intel MAX10 board management
 	  controller.

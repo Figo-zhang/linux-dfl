@@ -22,7 +22,7 @@
 #include <linux/stddef.h>
 #include <linux/errno.h>
 #include <linux/aer.h>
-#include <linux/fpga/dfl-hp-image-reload.h>
+#include <linux/fpga/fpgahp_manager.h>
 
 #include "dfl.h"
 
@@ -41,16 +41,16 @@ struct cci_drvdata {
 	struct dfl_fpga_cdev *cdev;	/* container device */
 };
 
-static int dfl_reload_prepare(struct dfl_image_reload *dfl_reload)
+static int dfl_hp_prepare(struct fpgahp_manager *mgr)
 {
-	struct device *trigger_dev = dfl_reload->trigger.parent;
-	struct pci_dev *pcidev = dfl_reload->priv;
+	struct device *bmc_dev = mgr->bmc.parent;
+	struct pci_dev *pcidev = mgr->priv;
 	struct cci_drvdata *drvdata = pci_get_drvdata(pcidev);
 	struct dfl_fpga_cdev *cdev = drvdata->cdev;
 	struct platform_device *fme = to_platform_device(cdev->fme_dev);
 
 	/* remove all of non-reserved fme devices of PF0 */
-	dfl_reload_remove_non_reserved_devs(fme, trigger_dev);
+	dfl_reload_remove_non_reserved_devs(fme, bmc_dev);
 
 	/* remove all AFU devices of PF0 */
 	dfl_reload_remove_afus(cdev);
@@ -58,8 +58,8 @@ static int dfl_reload_prepare(struct dfl_image_reload *dfl_reload)
 	return 0;
 }
 
-static const struct dfl_image_reload_ops reload_ops = {
-	.reload_prepare = dfl_reload_prepare,
+static const struct fpgahp_manager_ops fpgahp_ops = {
+	.hotplug_prepare = dfl_hp_prepare,
 };
 
 static void __iomem *cci_pci_ioremap_bar0(struct pci_dev *pcidev)
@@ -328,13 +328,39 @@ static int find_dfls_by_default(struct pci_dev *pcidev,
 	return ret;
 }
 
+/*
+ * On N3000 Card, FPGA devices like PFs/VFs and some Ethernet Controllers
+ * are connected to a PCI switch, so the hotplug bridge on the root port of
+ * FPGA PF0 device.
+ */
+static struct pci_dev *cci_find_hotplug_bridge(struct pci_dev *pcidev)
+{
+	struct pci_dev *hotplug_bridge;
+
+	static const struct pci_device_id has_pci_switch_devids[] = {
+		{PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCIE_DEVICE_ID_INTEL_PAC_N3000),},
+		{ 0, },
+	};
+
+	if (pci_match_id(has_pci_switch_devids, pcidev)) {
+		hotplug_bridge = pcie_find_root_port(pcidev);
+		if (!hotplug_bridge)
+			return ERR_PTR(-EINVAL);
+	} else {
+		hotplug_bridge = pcidev;
+	}
+
+	return hotplug_bridge;
+}
+
 /* enumerate feature devices under pci device */
 static int cci_enumerate_feature_devs(struct pci_dev *pcidev)
 {
 	struct cci_drvdata *drvdata = pci_get_drvdata(pcidev);
 	struct dfl_fpga_enum_info *info;
+	struct pci_dev *hotplug_bridge;
 	struct dfl_fpga_cdev *cdev;
-	struct dfl_image_reload *dfl_reload;
+	struct fpgahp_manager *mgr;
 	int nvec, ret = 0;
 	int *irq_table;
 
@@ -371,11 +397,18 @@ static int cci_enumerate_feature_devs(struct pci_dev *pcidev)
 
 	/* register reload dev only for PF0 */
 	if (dev_is_pf(&pcidev->dev)) {
-		dfl_reload = dfl_hp_register_image_reload(pcidev, dev_name(&pcidev->dev),
-							  &reload_ops);
-		if (IS_ERR(dfl_reload)) {
-			dev_err(&pcidev->dev, "dfl hotplug image reload register failure\n");
-			ret = PTR_ERR(dfl_reload);
+		hotplug_bridge = cci_find_hotplug_bridge(pcidev);
+		if (!hotplug_bridge) {
+			dev_err(&pcidev->dev, "dfl found hotplug bridge failure\n");
+			ret = PTR_ERR(hotplug_bridge);
+			goto irq_free_exit;
+		}
+
+		mgr = fpgahp_register(hotplug_bridge, dev_name(&pcidev->dev),
+				      &fpgahp_ops, pcidev);
+		if (IS_ERR(mgr)) {
+			dev_err(&pcidev->dev, "dfl pci hotplug register failure\n");
+			ret = PTR_ERR(mgr);
 			goto irq_free_exit;
 		}
 	}
@@ -385,17 +418,17 @@ static int cci_enumerate_feature_devs(struct pci_dev *pcidev)
 	if (IS_ERR(cdev)) {
 		dev_err(&pcidev->dev, "Enumeration failure\n");
 		ret = PTR_ERR(cdev);
-		goto free_reload;
+		goto free_register;
 	}
 
 	if (dev_is_pf(&pcidev->dev))
-		cdev->dfl_reload = dfl_reload;
+		cdev->fpgahp_mgr = mgr;
 
 	drvdata->cdev = cdev;
 
-free_reload:
+free_register:
 	if (ret && dev_is_pf(&pcidev->dev))
-		dfl_hp_unregister_image_reload(dfl_reload);
+		fpgahp_unregister(mgr);
 irq_free_exit:
 	if (ret)
 		cci_pci_free_irq(pcidev);
@@ -489,7 +522,7 @@ static void cci_pci_remove(struct pci_dev *pcidev)
 
 	if (dev_is_pf(&pcidev->dev)) {
 		cci_pci_sriov_configure(pcidev, 0);
-		dfl_hp_unregister_image_reload(cdev->dfl_reload);
+		fpgahp_unregister(cdev->fpgahp_mgr);
 	}
 
 	cci_remove_feature_devs(pcidev);

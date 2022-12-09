@@ -479,7 +479,7 @@ struct dfl_fpga_cdev {
 	struct mutex lock;
 	struct list_head port_dev_list;
 	int released_port_num;
-	struct dfl_image_reload *dfl_reload;
+	struct fpgahp_manager *fpgahp_mgr;
 };
 
 struct dfl_fpga_cdev *

@@ -8,7 +8,7 @@
 #include <linux/bitfield.h>
 #include <linux/device.h>
 #include <linux/firmware.h>
-#include <linux/fpga/dfl-hp-image-reload.h>
+#include <linux/fpga/fpgahp_manager.h>
 #include <linux/mfd/intel-m10-bmc.h>
 #include <linux/mod_devicetable.h>
 #include <linux/module.h>
@@ -23,7 +23,7 @@ struct m10bmc_sec {
 	u32 fw_name_id;
 	bool cancel_request;
 	struct image_load *image_load;	/* terminated with { } member */
-	struct dfl_image_trigger *trigger;
+	struct fpgahp_bmc_device *fpgahp_bmc;
 };
 
 struct image_load {
@@ -149,9 +149,9 @@ DEVICE_ATTR_SEC_CSK_RO(pr, PR_PROG_ADDR + CSK_VEC_OFFSET);
 
 #define FLASH_COUNT_SIZE 4096	/* count stored as inverted bit vector */
 
-static ssize_t m10bmc_available_images(struct dfl_image_trigger *trigger, char *buf)
+static ssize_t m10bmc_available_images(struct fpgahp_bmc_device *bmc, char *buf)
 {
-	struct m10bmc_sec *sec = trigger->priv;
+	struct m10bmc_sec *sec = bmc->priv;
 	const struct image_load *hndlr;
 	ssize_t count = 0;
 
@@ -165,10 +165,10 @@ static ssize_t m10bmc_available_images(struct dfl_image_trigger *trigger, char *
 	return count;
 }
 
-static int m10bmc_image_trigger(struct dfl_image_trigger *trigger, const char *buf,
+static int m10bmc_image_trigger(struct fpgahp_bmc_device *bmc, const char *buf,
 				u32 *wait_time_msec)
 {
-	struct m10bmc_sec *sec = trigger->priv;
+	struct m10bmc_sec *sec = bmc->priv;
 	const struct image_load *hndlr;
 	int ret = -EINVAL;
 
@@ -183,7 +183,7 @@ static int m10bmc_image_trigger(struct dfl_image_trigger *trigger, const char *b
 	return ret;
 }
 
-static const struct dfl_image_trigger_ops trigger_ops = {
+static const struct fpgahp_bmc_ops fpgahp_bmc_ops = {
 	.image_trigger = m10bmc_image_trigger,
 	.available_images = m10bmc_available_images,
 };
@@ -835,13 +835,13 @@ static int m10bmc_sec_probe(struct platform_device *pdev)
 
 	sec->fwl = fwl;
 
-	sec->trigger = dfl_hp_register_trigger(&trigger_ops, sec->dev, sec);
-	if (IS_ERR(sec->trigger)) {
-		dev_err(sec->dev, "register trigger failed\n");
+	sec->fpgahp_bmc = fpgahp_bmc_device_register(&fpgahp_bmc_ops, sec->dev, sec);
+	if (IS_ERR(sec->fpgahp_bmc)) {
+		dev_err(sec->dev, "register hotplug bmc failed\n");
 		kfree(sec->fw_name);
 		xa_erase(&fw_upload_xa, sec->fw_name_id);
 		firmware_upload_unregister(sec->fwl);
-		return PTR_ERR(sec->trigger);
+		return PTR_ERR(sec->fpgahp_bmc);
 	}
 
 	return 0;
@@ -851,7 +851,7 @@ static int m10bmc_sec_remove(struct platform_device *pdev)
 {
 	struct m10bmc_sec *sec = dev_get_drvdata(&pdev->dev);
 
-	dfl_hp_unregister_trigger(sec->trigger);
+	fpgahp_bmc_device_unregister(sec->fpgahp_bmc);
 	firmware_upload_unregister(sec->fwl);
 	kfree(sec->fw_name);
 	xa_erase(&fw_upload_xa, sec->fw_name_id);
