@@ -61,6 +61,20 @@ config HOTPLUG_PCI_ACPI
 
 	  When in doubt, say N.
 
+config HOTPLUG_PCI_FPGA
+	tristate "FPGA PCI Hotplug Manager Driver"
+	depends on HOTPLUG_PCI_PCIE
+	help
+          Select this option to enable FPGA hotplug driver for PCIe-based
+          Field-Programmable Gate Array (FPGA) solutions. This driver provides
+          sysfs files for userspace applications to manager the FPGA card like
+          load a new FPGA image, reset the FPGA card.
+
+          To compile this driver as a module, choose M here: the
+          module will be called fpgahp.
+
+          When in doubt, say N.
+
 config HOTPLUG_PCI_ACPI_IBM
 	tristate "ACPI PCI Hotplug driver IBM extensions"
 	depends on HOTPLUG_PCI_ACPI
