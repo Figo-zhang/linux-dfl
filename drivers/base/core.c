@@ -262,7 +262,7 @@ static void device_link_remove_from_lists(struct device_link *link)
 }
 #endif /* !CONFIG_SRCU */
 
-static bool device_is_ancestor(struct device *dev, struct device *target)
+bool device_is_ancestor(struct device *dev, struct device *target)
 {
 	while (target->parent) {
 		target = target->parent;
@@ -271,6 +271,7 @@ static bool device_is_ancestor(struct device *dev, struct device *target)
 	}
 	return false;
 }
+EXPORT_SYMBOL_GPL(device_is_ancestor);
 
 /**
  * device_is_dependent - Check if one device depends on another one
