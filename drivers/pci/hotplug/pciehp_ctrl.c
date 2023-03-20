@@ -63,11 +63,20 @@ static int board_added(struct controller *ctrl)
 	int retval = 0;
 	struct pci_bus *parent = ctrl->pcie->port->subordinate;
 
+#if 0
 	if (POWER_CTRL(ctrl)) {
 		/* Power on slot */
 		retval = pciehp_power_on_slot(ctrl);
 		if (retval)
 			return retval;
+	}
+#endif
+
+	ctrl_dbg(ctrl, "%s: re-enable the link \n", __func__);
+	retval = pciehp_link_enable(ctrl);
+	if (retval) {
+		ctrl_err(ctrl, "%s: Can not enable the link!\n", __func__);
+		goto err_exit;
 	}
 
 	pciehp_set_indicators(ctrl, PCI_EXP_SLTCTL_PWR_IND_BLINK,
@@ -112,6 +121,7 @@ static void remove_board(struct controller *ctrl, bool safe_removal)
 {
 	pciehp_unconfigure_device(ctrl, safe_removal);
 
+#if 0
 	if (POWER_CTRL(ctrl)) {
 		pciehp_power_off_slot(ctrl);
 
@@ -128,6 +138,10 @@ static void remove_board(struct controller *ctrl, bool safe_removal)
 		atomic_and(~(PCI_EXP_SLTSTA_DLLSC | PCI_EXP_SLTSTA_PDC),
 			   &ctrl->pending_events);
 	}
+#endif
+
+	ctrl_dbg(ctrl, "%s: link disable\n", __func__);
+	pciehp_link_disable(ctrl);
 
 	pciehp_set_indicators(ctrl, PCI_EXP_SLTCTL_PWR_IND_OFF,
 			      INDICATOR_NOOP);
@@ -279,8 +293,9 @@ void pciehp_handle_presence_or_link_change(struct controller *ctrl, u32 events)
 		if (link_active)
 			ctrl_info(ctrl, "Slot(%s): Link Up\n",
 				  slot_name(ctrl));
-		ctrl_info(ctrl, "%s, trying to enable slot\n", __func__);
+		ctrl_info(ctrl, "%s, trying to enable slot - \n", __func__);
 		ctrl->request_result = pciehp_enable_slot(ctrl);
+		//ctrl->request_result = 0;
 		break;
 	default:
 		mutex_unlock(&ctrl->state_lock);
@@ -301,6 +316,7 @@ static int __pciehp_enable_slot(struct controller *ctrl)
 		}
 	}
 
+#if 0
 	if (POWER_CTRL(ctrl)) {
 		pciehp_get_power_status(ctrl, &getstatus);
 		if (getstatus) {
@@ -309,6 +325,7 @@ static int __pciehp_enable_slot(struct controller *ctrl)
 			return 0;
 		}
 	}
+#endif
 
 	return board_added(ctrl);
 }

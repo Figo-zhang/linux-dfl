@@ -33,11 +33,11 @@ extern int pciehp_poll_time;
  * enable debug messages.
  */
 #define ctrl_dbg(ctrl, format, arg...)					\
-	pci_dbg(ctrl->pcie->port, format, ## arg)
+	pci_emerg(ctrl->pcie->port, format, ## arg)
 #define ctrl_err(ctrl, format, arg...)					\
 	pci_err(ctrl->pcie->port, format, ## arg)
 #define ctrl_info(ctrl, format, arg...)					\
-	pci_info(ctrl->pcie->port, format, ## arg)
+	pci_emerg(ctrl->pcie->port, format, ## arg)
 #define ctrl_warn(ctrl, format, arg...)					\
 	pci_warn(ctrl->pcie->port, format, ## arg)
 
@@ -193,6 +193,8 @@ int pciehp_set_raw_indicator_status(struct hotplug_slot *h_slot, u8 status);
 int pciehp_get_raw_indicator_status(struct hotplug_slot *h_slot, u8 *status);
 
 int pciehp_slot_reset(struct pcie_device *dev);
+int pciehp_link_enable(struct controller *ctrl);
+int pciehp_link_disable(struct controller *ctrl);
 
 static inline const char *slot_name(struct controller *ctrl)
 {

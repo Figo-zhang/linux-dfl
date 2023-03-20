@@ -187,8 +187,11 @@ static int pciehp_probe(struct pcie_device *dev)
 	struct controller *ctrl;
 
 	/* If this is not a "hotplug" service, we have no business here. */
-	if (dev->service != PCIE_PORT_SERVICE_HP)
+	if (dev->service != PCIE_PORT_SERVICE_HP) {
+		pci_err(dev->port,
+			"no Hotplug service\n");
 		return -ENODEV;
+	}
 
 	if (!dev->port->subordinate) {
 		/* Can happen if we run out of bus numbers during probe */
