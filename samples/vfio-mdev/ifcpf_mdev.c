@@ -61,6 +61,7 @@ struct mdev_region_info {
 
 /* State of each mdev device */
 struct mdev_state {
+	struct vfio_device vdev;
 	struct pci_dev *pdev;
 	u8 vconfig[MTTY_CONFIG_SPACE_SIZE];
 	struct mutex ops_lock;
@@ -201,22 +202,15 @@ static void mdev_read_base(struct mdev_state *mdev_state)
 	}
 }
 
-static ssize_t mdev_access(struct mdev_device *mdev, char *buf, size_t count,
+static ssize_t mdev_access(struct mdev_state *mdev_state, char *buf, size_t count,
 			   loff_t pos, bool is_write)
 {
-	struct mdev_state *mdev_state;
 	unsigned int index;
 	loff_t offset;
 	int ret = 0;
 
-	if (!mdev || !buf)
+	if (!buf)
 		return -EINVAL;
-
-	mdev_state = mdev_get_drvdata(mdev);
-	if (!mdev_state) {
-		pr_err("%s mdev_state not found\n", __func__);
-		return -EINVAL;
-	}
 
 	mutex_lock(&mdev_state->ops_lock);
 
@@ -276,72 +270,16 @@ accessfailed:
 	return ret;
 }
 
-int ifcpf_mdev_create(struct mdev_device *mdev)
+int ifcpf_reset(struct mdev_state *mdev_state)
 {
-	struct device *dev = mdev_parent_dev(mdev);
-	struct pci_dev *pdev = to_pci_dev(dev);
-	struct mdev_state *mdev_state;
-	int exist;
-
-	if (!mdev)
-		return -EINVAL;
-
-	exist = 0;
-	list_for_each_entry(mdev_state, &ifcpf_mdev_list, list) {
-		if (mdev_state->pdev == pdev)
-			exist = 1;
-	}
-
-	if (exist)
-		return 0;
-
-	mdev_state = kzalloc(sizeof(struct mdev_state), GFP_KERNEL);
-	if (mdev_state == NULL)
-		return -ENOMEM;
-
-	mutex_init(&mdev_state->ops_lock);
-	mdev_state->mdev = mdev;
-	mdev_state->pdev = pdev;
-	list_add(&mdev_state->list, &ifcpf_mdev_list);
-	mdev_set_drvdata(mdev, mdev_state);
-
-	ifcpf_mdev_create_config_space(mdev_state);
-
-	ifcpf_mdev_count++;
-
 	return 0;
 }
 
-int ifcpf_mdev_remove(struct mdev_device *mdev)
-{
-	struct mdev_state *mdev_state = mdev_get_drvdata(mdev);
-
-	list_del(&mdev_state->list);
-	mdev_set_drvdata(mdev, NULL);
-	kfree(mdev_state);
-
-	ifcpf_mdev_count--;
-
-	return 0;
-}
-
-int mtty_reset(struct mdev_device *mdev)
-{
-	struct mdev_state *mdev_state;
-
-	if (!mdev)
-		return -EINVAL;
-
-	mdev_state = mdev_get_drvdata(mdev);
-	if (!mdev_state)
-		return -EINVAL;
-
-	return 0;
-}
-
-ssize_t ifcpf_mdev_read(struct mdev_device *mdev, char __user *buf,
+ssize_t ifcpf_mdev_read(struct vfio_device *vdev, char __user *buf,
 			size_t count, loff_t *ppos)
 {
+	struct mdev_state *mdev_state =
+		container_of(vdev, struct mdev_state, vdev);
 	unsigned int done = 0;
 	int ret;
 
@@ -351,7 +289,7 @@ ssize_t ifcpf_mdev_read(struct mdev_device *mdev, char __user *buf,
 		if (count >= 4 && !(*ppos % 4)) {
 			u32 val;
 
-			ret =  mdev_access(mdev, (char *)&val, sizeof(val),
+			ret =  mdev_access(mdev_state, (char *)&val, sizeof(val),
 					   *ppos, false);
 			if (ret <= 0)
 				goto read_err;
@@ -363,7 +301,7 @@ ssize_t ifcpf_mdev_read(struct mdev_device *mdev, char __user *buf,
 		} else if (count >= 2 && !(*ppos % 2)) {
 			u16 val;
 
-			ret = mdev_access(mdev, (char *)&val, sizeof(val),
+			ret = mdev_access(mdev_state, (char *)&val, sizeof(val),
 					  *ppos, false);
 			if (ret <= 0)
 				goto read_err;
@@ -375,7 +313,7 @@ ssize_t ifcpf_mdev_read(struct mdev_device *mdev, char __user *buf,
 		} else {
 			u8 val;
 
-			ret = mdev_access(mdev, (char *)&val, sizeof(val),
+			ret = mdev_access(mdev_state, (char *)&val, sizeof(val),
 					  *ppos, false);
 			if (ret <= 0)
 				goto read_err;
@@ -398,9 +336,11 @@ read_err:
 	return -EFAULT;
 }
 
-ssize_t ifcpf_mdev_write(struct mdev_device *mdev, const char __user *buf,
+ssize_t ifcpf_mdev_write(struct vfio_device *vdev, const char __user *buf,
 		   size_t count, loff_t *ppos)
 {
+	struct mdev_state *mdev_state =
+		container_of(vdev, struct mdev_state, vdev);
 	unsigned int done = 0;
 	int ret;
 
@@ -413,7 +353,7 @@ ssize_t ifcpf_mdev_write(struct mdev_device *mdev, const char __user *buf,
 			if (copy_from_user(&val, buf, sizeof(val)))
 				goto write_err;
 
-			ret = mdev_access(mdev, (char *)&val, sizeof(val),
+			ret = mdev_access(mdev_state, (char *)&val, sizeof(val),
 					  *ppos, true);
 			if (ret <= 0)
 				goto write_err;
@@ -425,7 +365,7 @@ ssize_t ifcpf_mdev_write(struct mdev_device *mdev, const char __user *buf,
 			if (copy_from_user(&val, buf, sizeof(val)))
 				goto write_err;
 
-			ret = mdev_access(mdev, (char *)&val, sizeof(val),
+			ret = mdev_access(mdev_state, (char *)&val, sizeof(val),
 					  *ppos, true);
 			if (ret <= 0)
 				goto write_err;
@@ -437,7 +377,7 @@ ssize_t ifcpf_mdev_write(struct mdev_device *mdev, const char __user *buf,
 			if (copy_from_user(&val, buf, sizeof(val)))
 				goto write_err;
 
-			ret = mdev_access(mdev, (char *)&val, sizeof(val),
+			ret = mdev_access(mdev_state, (char *)&val, sizeof(val),
 					  *ppos, true);
 			if (ret <= 0)
 				goto write_err;
@@ -455,21 +395,13 @@ write_err:
 	return -EFAULT;
 }
 
-int mtty_get_region_info(struct mdev_device *mdev,
+int ifcpf_get_region_info(struct mdev_state *mdev_state,
 			 struct vfio_region_info *region_info,
 			 u16 *cap_type_id, void **cap_type)
 {
 	unsigned int size = 0;
-	struct mdev_state *mdev_state;
 	struct pci_dev *pdev;
 	u32 bar_index;
-
-	if (!mdev)
-		return -EINVAL;
-
-	mdev_state = mdev_get_drvdata(mdev);
-	if (!mdev_state)
-		return -EINVAL;
 
 	pdev = mdev_state->pdev;
 
@@ -510,8 +442,7 @@ int mtty_get_region_info(struct mdev_device *mdev,
 	return 0;
 }
 
-int mtty_get_device_info(struct mdev_device *mdev,
-			 struct vfio_device_info *dev_info)
+int ifcpf_get_device_info(struct vfio_device_info *dev_info)
 {
 	pr_info(">>>>>>>>>>>>>>>>>%s\n", __func__);
 
@@ -521,7 +452,7 @@ int mtty_get_device_info(struct mdev_device *mdev,
 
 	return 0;
 }
-int mtty_get_irq_info(struct mdev_device *mdev, struct vfio_irq_info *irq_info)
+int ifcpf_get_irq_info(struct vfio_irq_info *irq_info)
 {
 	if (irq_info->index != VFIO_PCI_MSIX_IRQ_INDEX)
 		return -ENOTSUPP;
@@ -532,21 +463,15 @@ int mtty_get_irq_info(struct mdev_device *mdev, struct vfio_irq_info *irq_info)
 	return 0;
 }
 
-static long ifcpf_mdev_ioctl(struct mdev_device *mdev, unsigned int cmd,
+static long ifcpf_mdev_ioctl(struct vfio_device *vdev, unsigned int cmd,
 			unsigned long arg)
 {
+	struct mdev_state *mdev_state =
+		container_of(vdev, struct mdev_state, vdev);
 	int ret = 0;
 	unsigned long minsz;
-	struct mdev_state *mdev_state;
 
 	pr_info(">>>>>>>>>>>>>>>>>%s\n", __func__);
-
-	if (!mdev)
-		return -EINVAL;
-
-	mdev_state = mdev_get_drvdata(mdev);
-	if (!mdev_state)
-		return -ENODEV;
 
 	switch (cmd) {
 	case VFIO_DEVICE_GET_INFO:
@@ -561,7 +486,7 @@ static long ifcpf_mdev_ioctl(struct mdev_device *mdev, unsigned int cmd,
 		if (info.argsz < minsz)
 			return -EINVAL;
 
-		ret = mtty_get_device_info(mdev, &info);
+		ret = ifcpf_get_device_info(&info);
 		if (ret)
 			return ret;
 
@@ -586,7 +511,7 @@ static long ifcpf_mdev_ioctl(struct mdev_device *mdev, unsigned int cmd,
 		if (info.argsz < minsz)
 			return -EINVAL;
 
-		ret = mtty_get_region_info(mdev, &info, &cap_type_id,
+		ret = ifcpf_get_region_info(mdev_state, &info, &cap_type_id,
 					   &cap_type);
 		if (ret)
 			return ret;
@@ -609,7 +534,7 @@ static long ifcpf_mdev_ioctl(struct mdev_device *mdev, unsigned int cmd,
 		    (info.index >= mdev_state->dev_info.num_irqs))
 			return -EINVAL;
 
-		ret = mtty_get_irq_info(mdev, &info);
+		ret = ifcpf_get_irq_info(&info);
 		if (ret)
 			return ret;
 
@@ -619,23 +544,17 @@ static long ifcpf_mdev_ioctl(struct mdev_device *mdev, unsigned int cmd,
 		return 0;
 	}
 	case VFIO_DEVICE_RESET:
-		return mtty_reset(mdev);
+		return ifcpf_reset(mdev_state);
 	}
 	return -ENOTTY;
 }
 
-int ifcpf_mdev_mmap(struct mdev_device *mdev, struct vm_area_struct *vma)
+int ifcpf_mdev_mmap(struct vfio_device *vdev, struct vm_area_struct *vma)
 {
-	struct mdev_state *mdev_state;
+	struct mdev_state *mdev_state =
+		container_of(vdev, struct mdev_state, vdev);
 	struct pci_dev *pdev;
 	u64 phys_len, req_len, pgoff, req_start;
-
-	if (!mdev)
-		return -EINVAL;
-
-	mdev_state = mdev_get_drvdata(mdev);
-	if (!mdev_state)
-		return -ENODEV;
 
 	pdev = mdev_state->pdev;
 
@@ -667,13 +586,13 @@ int ifcpf_mdev_mmap(struct mdev_device *mdev, struct vm_area_struct *vma)
 			       req_len, vma->vm_page_prot);
 }
 
-int ifcpf_mdev_open(struct mdev_device *mdev)
+int ifcpf_mdev_open(struct vfio_device *vdev)
 {
 	pr_info("%s\n", __func__);
 	return 0;
 }
 
-void ifcpf_mdev_close(struct mdev_device *mdev)
+void ifcpf_mdev_close(struct vfio_device *vdev)
 {
 	pr_info("%s\n", __func__);
 }
@@ -683,35 +602,33 @@ const struct attribute_group *mdev_dev_groups[] = {
 };
 
 static ssize_t
-name_show(struct mdev_type *mtype, struct mdev_type_attribute *attr, char *buf)
+name_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	const char *name_str = "virtio mdev";
 
 	return sprintf(buf, "%s\n", name_str);
 }
 
-MDEV_TYPE_ATTR_RO(name);
+static DEVICE_ATTR_RO(name);
 
-static ssize_t device_api_show(struct mdev_type *mtype, struct mdev_type_attribute *attr,
+static ssize_t device_api_show(struct device *dev, struct device_attribute *attr,
 			       char *buf)
 {
 	return sprintf(buf, "%s\n", VFIO_DEVICE_API_PCI_STRING);
 }
-
-MDEV_TYPE_ATTR_RO(device_api);
+static DEVICE_ATTR_RO(device_api);
 
 static ssize_t
-available_instances_show(struct mdev_type *mtype, struct mdev_type_attribute *attr, char *buf)
+available_instances_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	return sprintf(buf, "%d\n", ifcpf_mdev_count);
 }
-
-MDEV_TYPE_ATTR_RO(available_instances);
+static DEVICE_ATTR_RO(available_instances);
 
 static struct attribute *mdev_types_attrs[] = {
-	&mdev_type_attr_name.attr,
-	&mdev_type_attr_device_api.attr,
-	&mdev_type_attr_available_instances.attr,
+	&dev_attr_name.attr,
+	&dev_attr_device_api.attr,
+	&dev_attr_available_instances.attr,
 	NULL,
 };
 
@@ -720,22 +637,120 @@ static struct attribute_group mdev_type_group1 = {
 	.attrs = mdev_types_attrs,
 };
 
-struct attribute_group *mdev_type_groups[] = {
+static const struct attribute_group *mdev_type_groups[] = {
 	&mdev_type_group1,
 	NULL,
 };
 
-static const struct mdev_parent_ops mdev_fops = {
-	.owner                  = THIS_MODULE,
-	.mdev_attr_groups       = mdev_dev_groups,
-	.supported_type_groups  = mdev_type_groups,
-	.create                 = ifcpf_mdev_create,
-	.remove		        = ifcpf_mdev_remove,
-	.read                   = ifcpf_mdev_read,
-	.write                  = ifcpf_mdev_write,
-	.ioctl		        = ifcpf_mdev_ioctl,
-	.mmap		        = ifcpf_mdev_mmap,
+static int ifcpf_init_dev(struct vfio_device *vdev)
+{
+	struct mdev_state *mdev_state =
+		container_of(vdev, struct mdev_state, vdev);
+	struct mdev_device *mdev = to_mdev_device(vdev->dev);
+	struct pci_dev *pdev = mdev_state->pdev;
+	int exist;
+
+	if (!mdev)
+		return -EINVAL;
+
+	exist = 0;
+	list_for_each_entry(mdev_state, &ifcpf_mdev_list, list) {
+		if (mdev_state->pdev == pdev)
+			exist = 1;
+	}
+
+	if (exist)
+		return 0;
+
+	mutex_init(&mdev_state->ops_lock);
+	mdev_state->mdev = mdev;
+	mdev_state->pdev = pdev;
+	list_add(&mdev_state->list, &ifcpf_mdev_list);
+
+	ifcpf_mdev_create_config_space(mdev_state);
+
+	ifcpf_mdev_count++;
+
+	return 0;
+}
+
+static void ifcpf_release_dev(struct vfio_device *vdev)
+{
+	struct mdev_state *mdev_state =
+		container_of(vdev, struct mdev_state, vdev);
+
+	list_del(&mdev_state->list);
+	kfree(mdev_state);
+
+	ifcpf_mdev_count--;
+}
+
+static const struct vfio_device_ops ifcpf_dev_ops = {
+	.name = "vfio-ifcpf",
+	.init = ifcpf_init_dev,
+	.release = ifcpf_release_dev,
+	.open_device = ifcpf_mdev_open,
+	.close_device = ifcpf_mdev_close,
+	.read = ifcpf_mdev_read,
+	.write = ifcpf_mdev_write,
+	.ioctl = ifcpf_mdev_ioctl,
+	.mmap  = ifcpf_mdev_mmap,
 };
+
+static int ifcpf_probe(struct mdev_device *mdev)
+{
+	struct mdev_state *mdev_state;
+	int ret;
+
+	mdev_state = vfio_alloc_device(mdev_state, vdev, &mdev->dev,
+				       &ifcpf_dev_ops);
+	if (IS_ERR(mdev_state))
+		return PTR_ERR(mdev_state);
+
+	ret = vfio_register_emulated_iommu_dev(&mdev_state->vdev);
+	if (ret)
+		goto err_put_vdev;
+	dev_set_drvdata(&mdev->dev, mdev_state);
+	return 0;
+
+err_put_vdev:
+	vfio_put_device(&mdev_state->vdev);
+	return ret;
+}
+
+static void ifcpf_remove(struct mdev_device *mdev)
+{
+	struct mdev_state *mdev_state = dev_get_drvdata(&mdev->dev);
+
+	vfio_unregister_group_dev(&mdev_state->vdev);
+	vfio_put_device(&mdev_state->vdev);
+}
+
+static struct ifcpf_type {
+	struct mdev_type type;
+	int nr_ports;
+} ifcpf_types[1] = {
+	{ .nr_ports = 1, .type.sysfs_name = "1",
+	  .type.pretty_name = "ifcpf" },
+};
+
+static struct mdev_type *ifcpf_mdev_types[] = {
+	&ifcpf_types[0].type,
+};
+
+static struct mdev_driver ifcpf_driver = {
+	.device_api = VFIO_DEVICE_API_PCI_STRING,
+	.driver = {
+		.name = "ipcpf_mdev",
+		.owner = THIS_MODULE,
+		.mod_name = KBUILD_MODNAME,
+		.dev_groups = mdev_type_groups,
+	},
+	.probe = ifcpf_probe,
+	.remove	= ifcpf_remove,
+};
+
+static struct mdev_parent parent;
 
 /**
  * ifcpf_mdev_init_module - Driver registration routine
@@ -755,6 +770,7 @@ static int __init ifcpf_mdev_init_module(void)
 		ifcpf_mdev_driver_version);
 
 	pr_info("%s\n", ifcpf_mdev_copyright);
+	pr_info("ifcpf_dev: %s\n", __func__);
 
 	//pdev = pci_get_device(0x1af4, 0x1041, NULL);
 	pdev = pci_get_device(0x8086, 0xbcce, NULL);
@@ -767,10 +783,15 @@ static int __init ifcpf_mdev_init_module(void)
 			if (mstate->pdev == pdev)
 				exist = 1;
 		}
-
 		if (!exist) {
-			rc = mdev_register_device(dev, &mdev_fops);
+			rc = mdev_register_driver(&ifcpf_driver);
+			if (rc)
+				pr_err("Failed to register mdev driver\n");
+
+			rc = mdev_register_parent(&parent, dev, &ifcpf_driver,
+				ifcpf_mdev_types, ARRAY_SIZE(ifcpf_mdev_types));
 			if (rc) {
+				mdev_unregister_driver(&ifcpf_driver);
 				pr_err("Failed to register mdev device\n");
 			} else {
 				pr_info("%s\n register mdev success",
@@ -802,7 +823,9 @@ static void __exit ifcpf_mdev_exit_module(void)
 	//pdev = pci_get_device(0x1af4, 0x1041, NULL);
 	pdev = pci_get_device(0x8086, 0xbcce, NULL);
 	while (pdev) {
-		mdev_unregister_device(&pdev->dev);
+		mdev_unregister_parent(&parent);
+		mdev_unregister_driver(&ifcpf_driver);
+		pr_info("ifcpf_dev: Unloaded!\n");
 		//pdev = pci_get_device(0x1af4, 0x1041, pdev);
 		pdev = pci_get_device(0x8086, 0xbcce, pdev);
 	}
