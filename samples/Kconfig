@@ -198,6 +198,11 @@ config SAMPLE_VFIO_MDEV_MTTY
 	  Build a virtual tty sample driver for use as a VFIO
 	  mediated device
 
+config SAMPLE_VFIO_MDEV_IFC
+	tristate "Build VFIO ifc mediated device sample code"
+	depends on VFIO
+	select VFIO_MDEV
+
 config SAMPLE_VFIO_MDEV_MDPY
 	tristate "Build VFIO mdpy example mediated device sample code"
 	depends on VFIO
