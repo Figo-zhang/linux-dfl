@@ -33,24 +33,24 @@ MODULE_VERSION(DRV_VERSION);
 
 #define VFIO_PCI_OFFSET_SHIFT   40
 
-#define MTTY_STRING_LEN		16
+#define IFCPF_STRING_LEN		16
 
-#define MTTY_CONFIG_SPACE_SIZE  0x100
-#define MTTY_IO_BAR_SIZE        0x8
-#define MTTY_MMIO_BAR_SIZE      0x100000
+#define IFCPF_CONFIG_SPACE_SIZE  0x100
+#define IFCPF_IO_BAR_SIZE        0x8
+#define IFCPF_MMIO_BAR_SIZE      0x100000
 
 #define STORE_LE16(addr, val)   (*(u16 *)addr = val)
 #define STORE_LE32(addr, val)   (*(u32 *)addr = val)
 
 #define MAX_FIFO_SIZE   16
 
-#define MTTY_VFIO_PCI_OFFSET_SHIFT   40
+#define IFCPF_VFIO_PCI_OFFSET_SHIFT   40
 
-#define MTTY_VFIO_PCI_OFFSET_TO_INDEX(off)   (off >> MTTY_VFIO_PCI_OFFSET_SHIFT)
-#define MTTY_VFIO_PCI_INDEX_TO_OFFSET(index) \
-				((u64)(index) << MTTY_VFIO_PCI_OFFSET_SHIFT)
-#define MTTY_VFIO_PCI_OFFSET_MASK    \
-				(((u64)(1) << MTTY_VFIO_PCI_OFFSET_SHIFT) - 1)
+#define IFCPF_VFIO_PCI_OFFSET_TO_INDEX(off)   (off >> IFCPF_VFIO_PCI_OFFSET_SHIFT)
+#define IFCPF_VFIO_PCI_INDEX_TO_OFFSET(index) \
+				((u64)(index) << IFCPF_VFIO_PCI_OFFSET_SHIFT)
+#define IFCPF_VFIO_PCI_OFFSET_MASK    \
+				(((u64)(1) << IFCPF_VFIO_PCI_OFFSET_SHIFT) - 1)
 
 struct mdev_region_info {
 	u64 start;
@@ -63,7 +63,7 @@ struct mdev_region_info {
 struct mdev_state {
 	struct vfio_device vdev;
 	struct pci_dev *pdev;
-	u8 vconfig[MTTY_CONFIG_SPACE_SIZE];
+	u8 vconfig[IFCPF_CONFIG_SPACE_SIZE];
 	struct mutex ops_lock;
 	struct mdev_device *mdev;
 	struct mdev_region_info region_info[VFIO_PCI_NUM_REGIONS];
@@ -75,7 +75,7 @@ static LIST_HEAD(ifcpf_mdev_list);
 static int ifcpf_mdev_count;
 static void ifcpf_mdev_create_config_space(struct mdev_state *mdev_state)
 {
-	u8 cfg_space_data[MTTY_CONFIG_SPACE_SIZE] = {
+	u8 cfg_space_data[IFCPF_CONFIG_SPACE_SIZE] = {
 		0x86, 0x80, 0x86, 0x80, /* vendor id, device id */
 		0x46, 0x01, 0x10, 0x00, /* cmd reg, status reg */
 		0x00, 0x00, 0x00, 0x02, /* class */
@@ -92,9 +92,9 @@ static void ifcpf_mdev_create_config_space(struct mdev_state *mdev_state)
 		0x00, 0x00, 0x00, 0x00,
 		0x00, 0x00, 0x00, 0x00,
 		0x00, 0x00, 0x00, 0x00};
-	memcpy(mdev_state->vconfig, cfg_space_data, MTTY_CONFIG_SPACE_SIZE);
-	mdev_state->bar_mask[0] = ~(MTTY_IO_BAR_SIZE) + 1;
-	mdev_state->bar_mask[1] = ~(MTTY_IO_BAR_SIZE) + 1;
+	memcpy(mdev_state->vconfig, cfg_space_data, IFCPF_CONFIG_SPACE_SIZE);
+	mdev_state->bar_mask[0] = ~(IFCPF_IO_BAR_SIZE) + 1;
+	mdev_state->bar_mask[1] = ~(IFCPF_IO_BAR_SIZE) + 1;
 }
 
 static void handle_pci_cfg_write(struct mdev_state *mdev_state, u16 offset,
@@ -214,13 +214,13 @@ static ssize_t mdev_access(struct mdev_state *mdev_state, char *buf, size_t coun
 
 	mutex_lock(&mdev_state->ops_lock);
 
-	index = MTTY_VFIO_PCI_OFFSET_TO_INDEX(pos);
-	offset = pos & MTTY_VFIO_PCI_OFFSET_MASK;
+	index = IFCPF_VFIO_PCI_OFFSET_TO_INDEX(pos);
+	offset = pos & IFCPF_VFIO_PCI_OFFSET_MASK;
 
 	/* Checking offset value fall in configure mdev_state->vconfig size */
-	if (offset >= MTTY_CONFIG_SPACE_SIZE) {
+	if (offset >= IFCPF_CONFIG_SPACE_SIZE) {
 		pr_info("%s offset %llu more than allowed size %d\n",
-			__func__, offset, MTTY_CONFIG_SPACE_SIZE);
+			__func__, offset, IFCPF_CONFIG_SPACE_SIZE);
 
 		goto accessfailed;
 	}
@@ -413,7 +413,7 @@ int ifcpf_get_region_info(struct mdev_state *mdev_state,
 
 	switch (bar_index) {
 	case VFIO_PCI_CONFIG_REGION_INDEX:
-		size = MTTY_CONFIG_SPACE_SIZE;
+		size = IFCPF_CONFIG_SPACE_SIZE;
 		pr_info("%s get config region, size is %x\n", __func__, size);
 		region_info->flags = VFIO_REGION_INFO_FLAG_READ |
 			VFIO_REGION_INFO_FLAG_WRITE;
@@ -432,10 +432,10 @@ int ifcpf_get_region_info(struct mdev_state *mdev_state,
 
 	mdev_state->region_info[bar_index].size = size;
 	mdev_state->region_info[bar_index].vfio_offset =
-		MTTY_VFIO_PCI_INDEX_TO_OFFSET(bar_index);
+		IFCPF_VFIO_PCI_INDEX_TO_OFFSET(bar_index);
 
 	region_info->size = size;
-	region_info->offset = MTTY_VFIO_PCI_INDEX_TO_OFFSET(bar_index);
+	region_info->offset = IFCPF_VFIO_PCI_INDEX_TO_OFFSET(bar_index);
 	/*region_info->flags = VFIO_REGION_INFO_FLAG_READ |
 		VFIO_REGION_INFO_FLAG_WRITE;*/
 	mutex_unlock(&mdev_state->ops_lock);
