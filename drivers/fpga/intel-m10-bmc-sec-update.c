@@ -18,6 +18,8 @@ struct m10bmc_sec;
 
 struct m10bmc_sec_ops {
 	int (*rsu_status)(struct m10bmc_sec *sec);
+	int (*bmc_factory)(struct m10bmc_sec *sec);
+	int (*bmc_user)(struct m10bmc_sec *sec);
 };
 
 struct m10bmc_sec {
@@ -29,6 +31,75 @@ struct m10bmc_sec {
 	bool cancel_request;
 	const struct m10bmc_sec_ops *ops;
 };
+
+static int m10bmc_sec_bmc_image_load(struct m10bmc_sec *sec, unsigned int val)
+{
+	const struct m10bmc_csr_map *csr_map = sec->m10bmc->info->csr_map;
+	u32 doorbell;
+	int ret;
+
+	if (val > 1) {
+		dev_err(sec->dev, "secure update image load invalid reload val = %u\n", val);
+		return -EINVAL;
+	}
+
+	ret = m10bmc_sys_read(sec->m10bmc, csr_map->doorbell, &doorbell);
+	if (ret)
+		return ret;
+
+	if (doorbell & DRBL_REBOOT_DISABLED)
+		return -EBUSY;
+
+	return regmap_update_bits(sec->m10bmc->regmap, csr_map->doorbell,
+				      DRBL_CONFIG_SEL | DRBL_REBOOT_REQ,
+				      FIELD_PREP(DRBL_CONFIG_SEL, val) |
+				      DRBL_REBOOT_REQ);
+}
+
+static int m10bmc_n6000_sec_bmc_image_load(struct m10bmc_sec *sec, unsigned int val)
+{
+	const struct m10bmc_csr_map *csr_map = sec->m10bmc->info->csr_map;
+	u32 doorbell;
+	int ret;
+
+	if (val > 1) {
+		dev_err(sec->dev, "secure update image load invalid reload val = %u\n", val);
+		return -EINVAL;
+	}
+
+	ret = m10bmc_sys_read(sec->m10bmc, csr_map->doorbell, &doorbell);
+	if (ret)
+		return ret;
+
+	if (doorbell & PMCI_DRBL_REBOOT_DISABLED)
+		return -EBUSY;
+
+	return regmap_update_bits(sec->m10bmc->regmap,
+				  csr_map->base + M10BMC_PMCI_MAX10_RECONF,
+				  PMCI_MAX10_REBOOT_REQ | PMCI_MAX10_REBOOT_PAGE,
+				  FIELD_PREP(PMCI_MAX10_REBOOT_PAGE, val) |
+				  PMCI_MAX10_REBOOT_REQ);
+}
+
+static int m10bmc_sec_bmc_image_load_0(struct m10bmc_sec *sec)
+{
+	return m10bmc_sec_bmc_image_load(sec, 0);
+}
+
+static int m10bmc_sec_bmc_image_load_1(struct m10bmc_sec *sec)
+{
+	return m10bmc_sec_bmc_image_load(sec, 1);
+}
+
+static int pmci_sec_bmc_image_load_0(struct m10bmc_sec *sec)
+{
+	return m10bmc_n6000_sec_bmc_image_load(sec, 0);
+}
+
+static int pmci_sec_bmc_image_load_1(struct m10bmc_sec *sec)
+{
+	return m10bmc_n6000_sec_bmc_image_load(sec, 1);
+}
 
 static DEFINE_XARRAY_ALLOC(fw_upload_xa);
 
@@ -254,8 +325,64 @@ static struct attribute_group m10bmc_security_attr_group = {
 	.attrs = m10bmc_security_attrs,
 };
 
+static ssize_t bmc_factory_store(struct device *dev,
+				struct device_attribute *attr,
+				const char *buf, size_t count)
+{
+	struct m10bmc_sec *sec = dev_get_drvdata(dev);
+	int ret;
+
+	if (!sec->ops->bmc_factory)
+		return -ENODEV;
+
+	ret = sec->ops->bmc_factory(sec);
+
+	return ret ? : count;
+}
+static DEVICE_ATTR_WO(bmc_factory);
+
+static ssize_t bmc_user_store(struct device *dev,
+				struct device_attribute *attr,
+				const char *buf, size_t count)
+{
+	struct m10bmc_sec *sec = dev_get_drvdata(dev);
+	int ret;
+
+	if (!sec->ops->bmc_user)
+		return -ENODEV;
+
+	ret = sec->ops->bmc_user(sec);
+
+	return ret ? : count;
+}
+static DEVICE_ATTR_WO(bmc_user);
+
+static struct attribute *m10bmc_bmc_update_attrs[] = {
+	&dev_attr_bmc_factory.attr,
+	&dev_attr_bmc_user.attr,
+	NULL,
+};
+
+static umode_t
+m10bmc_bmc_update_is_visible(struct kobject *kobj, struct attribute *attr, int n)
+{
+	struct m10bmc_sec *sec = dev_get_drvdata(kobj_to_dev(kobj));
+
+	if (!sec->ops->bmc_factory && !sec->ops->bmc_user)
+		return 0;
+
+	return attr->mode;
+}
+
+static struct attribute_group m10bmc_bmc_update_attr_group = {
+	.name = "bmc_update",
+	.attrs = m10bmc_bmc_update_attrs,
+	.is_visible = m10bmc_bmc_update_is_visible,
+};
+
 static const struct attribute_group *m10bmc_sec_attr_groups[] = {
 	&m10bmc_security_attr_group,
+	&m10bmc_bmc_update_attr_group,
 	NULL,
 };
 
@@ -667,10 +794,14 @@ static const struct fw_upload_ops m10bmc_ops = {
 
 static const struct m10bmc_sec_ops m10sec_n3000_ops = {
 	.rsu_status = m10bmc_sec_n3000_rsu_status,
+	.bmc_factory = m10bmc_sec_bmc_image_load_1,
+	.bmc_user = m10bmc_sec_bmc_image_load_0,	
 };
 
 static const struct m10bmc_sec_ops m10sec_n6000_ops = {
 	.rsu_status = m10bmc_sec_n6000_rsu_status,
+	.bmc_factory = pmci_sec_bmc_image_load_0,
+	.bmc_user = pmci_sec_bmc_image_load_1,	
 };
 
 #define SEC_UPDATE_LEN_MAX 32
