@@ -20,6 +20,9 @@ struct m10bmc_sec_ops {
 	int (*rsu_status)(struct m10bmc_sec *sec);
 	int (*bmc_factory)(struct m10bmc_sec *sec);
 	int (*bmc_user)(struct m10bmc_sec *sec);
+	int (*fpga_factory)(struct m10bmc_sec *sec);
+	int (*fpga_user1)(struct m10bmc_sec *sec);
+	int (*fpga_user2)(struct m10bmc_sec *sec);
 };
 
 struct m10bmc_sec {
@@ -99,6 +102,44 @@ static int pmci_sec_bmc_image_load_0(struct m10bmc_sec *sec)
 static int pmci_sec_bmc_image_load_1(struct m10bmc_sec *sec)
 {
 	return m10bmc_n6000_sec_bmc_image_load(sec, 1);
+}
+
+static int pmci_sec_fpga_image_load(struct m10bmc_sec *sec, unsigned int val)
+{
+	const struct m10bmc_csr_map *csr_map = sec->m10bmc->info->csr_map;
+	int ret;
+
+	if (val > 2) {
+		dev_err(sec->dev, "secure update image load invalid reload val = %u\n", val);
+		return -EINVAL;
+	}
+
+	ret = regmap_update_bits(sec->m10bmc->regmap,
+				 csr_map->base + M10BMC_PMCI_FPGA_RECONF,
+				 PMCI_FPGA_RP_LOAD, 0);
+	if (ret)
+		return ret;
+
+	return regmap_update_bits(sec->m10bmc->regmap,
+				  csr_map->base + M10BMC_PMCI_FPGA_RECONF,
+				  PMCI_FPGA_RECONF_PAGE | PMCI_FPGA_RP_LOAD,
+				  FIELD_PREP(PMCI_FPGA_RECONF_PAGE, val) |
+				  PMCI_FPGA_RP_LOAD);
+}
+
+static int pmci_sec_fpga_image_load_0(struct m10bmc_sec *sec)
+{
+	return pmci_sec_fpga_image_load(sec, 0);
+}
+
+static int pmci_sec_fpga_image_load_1(struct m10bmc_sec *sec)
+{
+	return pmci_sec_fpga_image_load(sec, 1);
+}
+
+static int pmci_sec_fpga_image_load_2(struct m10bmc_sec *sec)
+{
+	return pmci_sec_fpga_image_load(sec, 2);
 }
 
 static DEFINE_XARRAY_ALLOC(fw_upload_xa);
@@ -337,10 +378,16 @@ static DEVICE_ATTR_WO(image);
 
 M10BMC_UPDATE_DEV_ATTR(bmc_factory, bmc_factory);
 M10BMC_UPDATE_DEV_ATTR(bmc_user, bmc_user);
+M10BMC_UPDATE_DEV_ATTR(fpga_factory, fpga_factory);
+M10BMC_UPDATE_DEV_ATTR(fpga_user1, fpga_user1);
+M10BMC_UPDATE_DEV_ATTR(fpga_user2, fpga_user2);
 
 static struct attribute *m10bmc_update_attrs[] = {
 	&dev_attr_bmc_user.attr,
 	&dev_attr_bmc_factory.attr,
+	&dev_attr_fpga_factory.attr,
+	&dev_attr_fpga_user1.attr,
+	&dev_attr_fpga_user2.attr,
 	NULL,
 };
 
@@ -350,7 +397,10 @@ m10bmc_update_is_visible(struct kobject *kobj, struct attribute *attr, int n)
 	struct m10bmc_sec *sec = dev_get_drvdata(kobj_to_dev(kobj));
 	
 	if ((attr == &dev_attr_bmc_user.attr && !sec->ops->bmc_user) ||
-		(attr == &dev_attr_bmc_factory.attr && !sec->ops->bmc_factory))
+	   (attr == &dev_attr_bmc_factory.attr && !sec->ops->bmc_factory) ||
+	   (attr == &dev_attr_fpga_factory.attr && !sec->ops->fpga_factory) ||
+	   (attr == &dev_attr_fpga_user1.attr && !sec->ops->fpga_user1) ||
+	   (attr == &dev_attr_fpga_user2.attr && !sec->ops->fpga_user2))
 		return 0;
 
 	return attr->mode;
@@ -784,6 +834,9 @@ static const struct m10bmc_sec_ops m10sec_n6000_ops = {
 	.rsu_status = m10bmc_sec_n6000_rsu_status,
 	.bmc_factory = pmci_sec_bmc_image_load_0,
 	.bmc_user = pmci_sec_bmc_image_load_1,	
+	.fpga_factory = pmci_sec_fpga_image_load_0,
+	.fpga_user1 = pmci_sec_fpga_image_load_1,
+	.fpga_user2 = pmci_sec_fpga_image_load_2,
 };
 
 #define SEC_UPDATE_LEN_MAX 32
