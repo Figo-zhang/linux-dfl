@@ -341,6 +341,25 @@ static ssize_t bmc_factory_store(struct device *dev,
 }
 static DEVICE_ATTR_WO(bmc_factory);
 
+static struct attribute *m10bmc_bmc_factory_attrs[] = {
+	&dev_attr_bmc_factory.attr,
+	NULL,
+};
+
+static umode_t
+m10bmc_bmc_factory_is_visible(struct kobject *kobj, struct attribute *attr, int n)
+{
+	struct m10bmc_sec *sec = dev_get_drvdata(kobj_to_dev(kobj));
+
+	return (sec->ops->bmc_factory) ? attr->mode: 0;
+}
+
+static struct attribute_group m10bmc_bmc_factory_attr_group = {
+	.name = "bmc_factory",
+	.attrs = m10bmc_bmc_factory_attrs,
+	.is_visible = m10bmc_bmc_factory_is_visible,
+};
+
 static ssize_t bmc_user_store(struct device *dev,
 				struct device_attribute *attr,
 				const char *buf, size_t count)
@@ -357,32 +376,29 @@ static ssize_t bmc_user_store(struct device *dev,
 }
 static DEVICE_ATTR_WO(bmc_user);
 
-static struct attribute *m10bmc_bmc_update_attrs[] = {
-	&dev_attr_bmc_factory.attr,
+static struct attribute *m10bmc_bmc_user_attrs[] = {
 	&dev_attr_bmc_user.attr,
 	NULL,
 };
 
 static umode_t
-m10bmc_bmc_update_is_visible(struct kobject *kobj, struct attribute *attr, int n)
+m10bmc_bmc_user_is_visible(struct kobject *kobj, struct attribute *attr, int n)
 {
 	struct m10bmc_sec *sec = dev_get_drvdata(kobj_to_dev(kobj));
 
-	if (!sec->ops->bmc_factory && !sec->ops->bmc_user)
-		return 0;
-
-	return attr->mode;
+	return (sec->ops->bmc_user) ? attr->mode: 0;
 }
 
-static struct attribute_group m10bmc_bmc_update_attr_group = {
-	.name = "bmc_update",
-	.attrs = m10bmc_bmc_update_attrs,
-	.is_visible = m10bmc_bmc_update_is_visible,
+static struct attribute_group m10bmc_bmc_user_attr_group = {
+	.name = "bmc_user",
+	.attrs = m10bmc_bmc_user_attrs,
+	.is_visible = m10bmc_bmc_user_is_visible,
 };
 
 static const struct attribute_group *m10bmc_sec_attr_groups[] = {
 	&m10bmc_security_attr_group,
-	&m10bmc_bmc_update_attr_group,
+	&m10bmc_bmc_factory_attr_group,
+	&m10bmc_bmc_user_attr_group,
 	NULL,
 };
 
