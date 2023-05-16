@@ -325,6 +325,7 @@ static struct attribute_group m10bmc_security_attr_group = {
 	.attrs = m10bmc_security_attrs,
 };
 
+#if 0
 static ssize_t bmc_factory_store(struct device *dev,
 				struct device_attribute *attr,
 				const char *buf, size_t count)
@@ -394,6 +395,35 @@ static struct attribute_group m10bmc_bmc_user_attr_group = {
 	.attrs = m10bmc_bmc_user_attrs,
 	.is_visible = m10bmc_bmc_user_is_visible,
 };
+#endif
+
+#define M10BMC_ATTR_GROUP(image, fn) \
+static ssize_t image##_store(struct device *dev, \
+				struct device_attribute *attr, \
+				const char *buf, size_t count) \
+{                          \
+	struct m10bmc_sec *sec = dev_get_drvdata(dev); \
+	return sec->ops->fn(sec) ? : count; \
+} \
+static DEVICE_ATTR_WO(image); \
+static struct attribute *m10bmc_##image##_attrs[] = { \
+	&dev_attr_##image.attr, \
+	NULL, \
+}; \
+static umode_t \
+m10bmc_##image##_is_visible(struct kobject *kobj, struct attribute *attr, int n) \
+{  \
+	struct m10bmc_sec *sec = dev_get_drvdata(kobj_to_dev(kobj)); \
+	return (sec->ops->fn) ? attr->mode: 0; \
+} \
+static struct attribute_group m10bmc_##image##_attr_group = { \
+	.name = #image, \
+	.attrs = m10bmc_##image##_attrs, \
+	.is_visible = m10bmc_##image##_is_visible, \
+};
+
+M10BMC_ATTR_GROUP(bmc_factory, bmc_factory);
+M10BMC_ATTR_GROUP(bmc_user, bmc_user);
 
 static const struct attribute_group *m10bmc_sec_attr_groups[] = {
 	&m10bmc_security_attr_group,
