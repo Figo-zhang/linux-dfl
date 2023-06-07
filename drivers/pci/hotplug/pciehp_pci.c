@@ -13,6 +13,8 @@
  *
  */
 
+#define DEBUG
+
 #define dev_fmt(fmt) "pciehp: " fmt
 
 #include <linux/kernel.h>

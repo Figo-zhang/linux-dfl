@@ -13,6 +13,8 @@
  *
  */
 
+#define DEBUG
+
 #define dev_fmt(fmt) "pciehp: " fmt
 
 #include <linux/kernel.h>
@@ -112,6 +114,8 @@ static void remove_board(struct controller *ctrl, bool safe_removal)
 
 	if (POWER_CTRL(ctrl)) {
 		pciehp_power_off_slot(ctrl);
+
+		ctrl_dbg(ctrl, "%s: poweroff slot\n", __func__);
 
 		/*
 		 * After turning power off, we must wait for at least 1 second
@@ -244,6 +248,7 @@ void pciehp_handle_presence_or_link_change(struct controller *ctrl, u32 events)
 		if (events & PCI_EXP_SLTSTA_PDC)
 			ctrl_info(ctrl, "Slot(%s): Card not present\n",
 				  slot_name(ctrl));
+		ctrl_info(ctrl, "%s trying SURPRISE_REMOVAL\n", __func__);
 		pciehp_disable_slot(ctrl, SURPRISE_REMOVAL);
 		break;
 	default:
@@ -256,6 +261,7 @@ void pciehp_handle_presence_or_link_change(struct controller *ctrl, u32 events)
 	present = pciehp_card_present(ctrl);
 	link_active = pciehp_check_link_active(ctrl);
 	if (present <= 0 && link_active <= 0) {
+		ctrl_info(ctrl, "%s, present <= 0 && link_active <= 0\n", __func__);
 		mutex_unlock(&ctrl->state_lock);
 		return;
 	}
@@ -273,6 +279,7 @@ void pciehp_handle_presence_or_link_change(struct controller *ctrl, u32 events)
 		if (link_active)
 			ctrl_info(ctrl, "Slot(%s): Link Up\n",
 				  slot_name(ctrl));
+		ctrl_info(ctrl, "%s, trying to enable slot\n", __func__);
 		ctrl->request_result = pciehp_enable_slot(ctrl);
 		break;
 	default:
@@ -339,6 +346,9 @@ static int __pciehp_disable_slot(struct controller *ctrl, bool safe_removal)
 	}
 
 	remove_board(ctrl, safe_removal);
+
+	ctrl_info(ctrl, "trying to wait 10s for FPGA\n", __func__);
+	msleep(10*1000);
 	return 0;
 }
 

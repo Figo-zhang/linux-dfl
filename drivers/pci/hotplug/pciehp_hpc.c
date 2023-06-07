@@ -12,6 +12,8 @@
  * Send feedback to <greg@kroah.com>,<kristen.c.accardi@intel.com>
  */
 
+#define DEBUG
+
 #define dev_fmt(fmt) "pciehp: " fmt
 
 #include <linux/dmi.h>
@@ -638,6 +640,7 @@ read_status:
 		  PCI_EXP_SLTSTA_PDC | PCI_EXP_SLTSTA_CC |
 		  PCI_EXP_SLTSTA_DLLSC;
 
+	ctrl_dbg(ctrl, "%s slot status %x \n", __func__, status);
 	/*
 	 * If we've already reported a power fault, don't report it again
 	 * until we've done something to handle it.
@@ -667,7 +670,7 @@ read_status:
 			goto read_status;
 	}
 
-	ctrl_dbg(ctrl, "pending interrupts %#06x from Slot Status\n", events);
+	ctrl_dbg(ctrl, "%s pending interrupts %#06x from Slot Status\n", __func__, events);
 	if (parent)
 		pm_runtime_put(parent);
 
@@ -720,6 +723,8 @@ static irqreturn_t pciehp_ist(int irq, void *dev_id)
 		ret = IRQ_NONE;
 		goto out;
 	}
+
+	ctrl_dbg(ctrl, "%s events %#06x\n", __func__, events);
 
 	/* Check Attention Button Pressed */
 	if (events & PCI_EXP_SLTSTA_ABP) {

@@ -17,6 +17,7 @@
  *   Dely Sy <dely.l.sy@intel.com>"
  */
 
+#define DEBUG
 #define pr_fmt(fmt) "pciehp: " fmt
 #define dev_fmt pr_fmt
 
